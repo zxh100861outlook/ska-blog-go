@@ -1,4 +1,4 @@
-// Package theme 提供 TUI 的 3 套内置配色（palette）与切换注册表。
+// Package theme 提供 TUI 的 4 套内置配色（palette）与切换注册表。
 //
 // Palette 是纯数据结构，样式在 View 时由 tui 包从当前 palette 现取
 // （禁止预烘焙 lipgloss.Style），因此 Ctrl+T 切主题后全界面即时生效。
@@ -41,6 +41,17 @@ var registry = []Palette{
 		TextMuted:  "#6d92a6",
 		Border:     "#2a5a70",
 	},
+	{
+		// Gruvbox Dark 官方配色（来源: gruvbox 社区调色板 dark 变体）。
+		// Primary=#fe8019(橙)、Background=#282828(bg0)、Text=#ebdbb2(fg)、
+		// TextMuted=#a89984(gray)、Border=#504945(bg3)。
+		Name:       "gruvbox",
+		Primary:    "#fe8019", // 橙（gruvbox 官方 primary/orange）
+		Background: "#282828", // bg0 背景
+		Text:       "#ebdbb2", // fg 正文
+		TextMuted:  "#a89984", // gray 暗淡文字：摘要/键位提示
+		Border:     "#504945", // bg3 边框
+	},
 }
 
 // Names 返回全部内置主题名（注册顺序，供测试/调试）。
@@ -62,7 +73,7 @@ func Get(name string) Palette {
 	return registry[0]
 }
 
-// Cycle 返回 next 主题：在注册表里循环（默认→aura→冷青→默认...）。
+// Cycle 返回 next 主题：在注册表里循环（默认→aura→冷青→gruvbox→默认...）。
 // 状态仅由当前主题名承载，无副作用，可直接在 Ctrl+T 分支调用。
 func Cycle(cur string) string {
 	for i, p := range registry {

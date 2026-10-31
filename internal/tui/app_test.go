@@ -115,7 +115,12 @@ func TestCtrlTNotQuit(t *testing.T) {
 	m := sized(t)
 	m.updateListKey("enter") // 阅读态同样可用
 	start := m.theme
-	for _, want := range []string{theme.Cycle(start), theme.Cycle(theme.Cycle(start)), start} {
+	for _, want := range []string{
+		theme.Cycle(start),
+		theme.Cycle(theme.Cycle(start)),
+		theme.Cycle(theme.Cycle(theme.Cycle(start))),
+		start, // 第 4 套（gruvbox）之后再按一次回到第 1 套
+	} {
 		m2, cmd := m.Update(tea.KeyMsg{Type: tea.KeyCtrlT})
 		if cmd != nil {
 			t.Fatal("ctrl+t 不应产生退出 cmd")

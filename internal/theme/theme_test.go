@@ -7,17 +7,17 @@ import (
 	"github.com/charmbracelet/lipgloss"
 )
 
-// TestCycle 内置 3 套主题循环：默认 → aura → 冷青 → 默认。
+// TestCycle 内置 4 套主题循环：默认 → aura → 冷青 → gruvbox → 默认。
 func TestCycle(t *testing.T) {
-	want := []string{"默认", "aura", "冷青"}
-	if got := Names(); len(got) != 3 {
-		t.Fatalf("应注册 3 套主题, got %d: %v", len(got), want)
+	want := []string{"默认", "aura", "冷青", "gruvbox"}
+	if got := Names(); len(got) != 4 {
+		t.Fatalf("应注册 4 套主题, got %d: %v", len(got), want)
 	}
 	cur := "默认"
-	for i := 0; i < 7; i++ {
+	for i := 0; i < 9; i++ {
 		cur = Cycle(cur)
-		if cur != want[(i+1)%3] {
-			t.Fatalf("第 %d 次切换应为 %q, got %q", i, want[(i+1)%3], cur)
+		if cur != want[(i+1)%4] {
+			t.Fatalf("第 %d 次切换应为 %q, got %q", i, want[(i+1)%4], cur)
 		}
 	}
 }
@@ -36,6 +36,25 @@ func TestGet(t *testing.T) {
 	}
 	if got := Get("aura"); got.Primary != lipgloss.Color("#5cb66b") {
 		t.Errorf("aura 主色应为 #5cb66b, got %q", got.Primary)
+	}
+	g := Get("gruvbox")
+	for field, want := range map[string]lipgloss.Color{
+		"Primary":    "#fe8019",
+		"Background": "#282828",
+		"Text":       "#ebdbb2",
+		"TextMuted":  "#a89984",
+		"Border":     "#504945",
+	} {
+		got := map[string]lipgloss.Color{
+			"Primary":    g.Primary,
+			"Background": g.Background,
+			"Text":       g.Text,
+			"TextMuted":  g.TextMuted,
+			"Border":     g.Border,
+		}[field]
+		if got != want {
+			t.Errorf("gruvbox %s 应为 %q, got %q", field, want, got)
+		}
 	}
 }
 
