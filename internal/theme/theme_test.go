@@ -49,6 +49,10 @@ func TestPaletteComplete(t *testing.T) {
 			"Text":       p.Text,
 			"TextMuted":  p.TextMuted,
 			"Border":     p.Border,
+			"SelBg":      p.SelBg,
+			"ListTitle":  p.ListTitle,
+			"Meta":       p.Meta,
+			"Divider":    p.Divider,
 		} {
 			if v == "" {
 				t.Errorf("主题 %q 的 %s 颜色为空", name, field)

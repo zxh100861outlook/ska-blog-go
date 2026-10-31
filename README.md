@@ -14,50 +14,43 @@ ssh -p 2222 <主机>
 
 - 端口默认 `2222`（可用 `-addr` 改，见维护者一节）。
 - **任意用户名均可**：`ssh zhangsan@主机 -p 2222`、`ssh -l guest 主机 -p 2222` 都能进。
-- 连接后进入三栏 TUI：左主列（文章列表/正文）＋右侧 30% Sidebar（STATUS 框＋提示框），根边框左上角标题 `SKA-BLOG://GO`、底部键位提示条。
+- 连接后进入 TUI（Charm house style，soft-serve/glow 式）：顶部一行 header 无边框——左 `SKA·BLOG` 品牌字（主色粗体），右对齐 `访客：<user> · 文章 N 篇`；header 下一条细分割线。主体为左主列（glow 式行列表/正文）＋右侧 30% Sidebar，两栏间一条竖分割线（仅侧栏展开时画）。侧栏为无边框 `STATUS` / `KEYS` 两个小节（标题大写小字灰、内容缩进两格，键位逐行列出并附"主题：X"与"侧栏：开/收"）。`Tab` 可收起/展开侧栏，收起后主列占满全宽（无竖分割线）。
+- **复制**：终端**没有接管鼠标**（不发送 `?1000`/`?1006` 上报），直接用鼠标**拖拽选中**即可复制，无需 Ctrl+C 手势。
 - 退出：`Q` 或 `Ctrl+C`。
 
 ### 键位表（列表视图）
 
 | 键 | 功能 | 来源（case 分支） |
 |---|---|---|
-| `↑` / `k` | 选中上移一张卡片 | `internal/tui/app.go` `case "up", "k"` |
-| `↓` / `j` | 选中下移一张卡片 | `internal/tui/app.go` `case "down", "j"` |
+| `↑` / `k` | 选中上移一个条目 | `internal/tui/app.go` `case "up", "k"` |
+| `↓` / `j` | 选中下移一个条目 | `internal/tui/app.go` `case "down", "j"` |
 | `Enter` | 进入当前文章阅读态 | `internal/tui/app.go` `case "enter"` |
-| `q` | 退出 | `internal/tui/app.go` `case "q"` |
+| `/` | 进入搜索态（实时过滤） | `internal/tui/app.go` `case "/"` |
+| `:` | 进入编号跳转态 | `internal/tui/app.go` `case ":"` |
+| `Tab` | 收起/展开右侧 Sidebar | `internal/tui/app.go` `case "tab"` |
 | `Ctrl+T` | 循环主题（默认→aura→冷青→默认） | `internal/tui/app.go` `case "ctrl+t"` |
-| `Ctrl+C` | 退出 | `internal/tui/app.go` `case "ctrl+c"` |
-| 滚轮上/下 | 选中上移/下移 | `internal/tui/app.go` `case tea.MouseWheelUp, tea.MouseWheelDown` |
+| `Q` / `Ctrl+C` | 退出 | `internal/tui/app.go` `case "ctrl+c"` |
 
-列表滚动跟随：选中卡片始终整块可见，滑出窗口顶/底时窗口整体平移。
+列表为 glow 式**行列表（无边框盒）**：每篇两行——首行 `▍ <id> · <标题>`（选中：整行淡背景色块 + 行首 `▍` 块状光标 + 标题主色加粗；未选：前景 TextMuted），次行 `<id>·N段·约M分钟 · <摘要>`（更暗一档、同缩进两格），条目间空一行。滚动跟随：选中条目始终整块可见，滑出窗口顶/底时窗口整体平移。
 
 ### 键位表（阅读视图）
 
 | 键 | 功能 | 来源（case 分支） |
 |---|---|---|
-| `PgUp` / `b` | 向上翻一页 | `internal/tui/reader.go` `case "pgup", "b"` |
-| `PgDn` / `空格` | 向下翻一页 | `internal/tui/reader.go` `case "pgdown", " "` |
-| `j` | 向下滚一行 | `internal/tui/reader.go` `case "j"` |
-| `k` | 向上滚一行 | `internal/tui/reader.go` `case "k"` |
-| `Home` / `g` | 跳到正文顶部 | `internal/tui/reader.go` `case "home", "g"` |
-| `End` / `G` | 跳到正文底部 | `internal/tui/reader.go` `case "end", "G"` |
+| `↑` / `k` | 向上滚一行 | `internal/tui/reader.go` `case "up", "k"` |
+| `↓` / `j` | 向下滚一行 | `internal/tui/reader.go` `case "down", "j"` |
 | `←` / `h` / `Esc` | 返回列表视图 | `internal/tui/app.go` `case "left", "h", "esc"` |
-| `q` | 退出 | `internal/tui/reader.go` `case "q"` |
+| `Tab` | 收起/展开右侧 Sidebar | `internal/tui/app.go` `case "tab"` |
 | `Ctrl+T` | 循环主题（列表态/阅读态都可用） | `internal/tui/app.go` `case "ctrl+t"` |
-| `Ctrl+C` | 退出 | `internal/tui/app.go` `case "ctrl+c"` |
-| 滚轮上/下 | 按加速行数滚动 | `internal/tui/app.go` `case tea.MouseWheelUp, tea.MouseWheelDown` |
+| `Q` / `Ctrl+C` | 退出 | `internal/tui/app.go` `case "ctrl+c"` |
 
-阅读态顶部有进度行（`标题 (N%)`），底部提示条列出 `↑↓/PgUp/PgDn 滚动  g/End 行首尾  ←/h/Esc 返回  Ctrl+T 主题  Q/Ctrl+C 退出`。
+阅读态顶部有进度行（`标题 (N%)`）；正文用 **glamour** 渲染（标题层级/代码块背景，按主列宽折行，失败时回退 `internal/render`）。滚动**只保留方向键**（`↑↓`/`j`/`k`），`PgUp`/`PgDn`/`Space`/`Home`/`End`/`g`/`G` 一律不响应。键位提示在侧栏 `KEYS` 小节按当前视图（列表/阅读/搜索/跳转）动态列出。
 
-### 鼠标滚轮连滚加速
+### 搜索与跳转
 
-`↑↓` 之外的滚轮行为：阅读态下**连续滚轮会加速**。语义（参考 `src/lib/scroll-accel.ts` 的 `fastScroll`，实现见 `internal/tui/reader.go` `accel`）：
-
-- 首次滚轮或间隔 ≥ 300ms：每次滚 1 行（超时重置）。
-- 连续区间内每过一拍（50ms）增量翻倍：`1 → 2 → 4 → 8 → 16`，封顶 16 行/次。
-- 停手超过 300ms 后回到 1 行/次。
-
-列表态滚轮不做加速，只做单卡移动。
+- **搜索**：列表视图按 `/` 进入搜索态，主列顶部出现输入行。键入时**实时过滤**——按标题＋正文＋ID 做不区分大小写的子串匹配，列表只显示命中项且焦点在首个命中。`Enter` 直接打开焦点文章阅读，`Esc` 取消搜索并恢复全量，`退格` 删除上一个字符（中文按字符计）。
+- **编号跳转**：列表视图按 `:` 进入跳转态，输入文章 ID（先精确、后前缀匹配）。`Enter` 命中则直达阅读；未命中在输入行后显示"无此文"且保留输入；`Esc` 取消。
+- 输入行为手写 rune 级实现（不依赖 `bubbles/textinput`），中文按客户端送来的字节解码累积。
 
 ### 非交互纯文本列表（无 PTY）
 
@@ -100,7 +93,7 @@ go run .                # 启动 SSH 服务器（默认 127.0.0.1:2222）
 | `-articles` | `articles/articles.md` | 文章 Markdown 数据文件路径 |
 | `-guest` | `true` | 允许匿名访客（`false` 时启动即报错：guest 鉴权暂未实现） |
 | `-list` | `false` | 调试：打印纯文本文章索引（格式同 `ssh -T` 输出）后退出 |
-| `-render` | `""` | 调试：渲染指定 ID 的文章 ANSI 文本后退出，如 `go run . -render wj2` |
+| `-render` | `""` | 调试：渲染指定 ID 的文章 ANSI 文本后退出（按 80 列折行），如 `go run . -render wj2` |
 | `-local` | `false` | 调试：在本终端运行 TUI（不走 SSH，需真 TTY；无 TTY 报 `could not open a new TTY`） |
 
 示例：
@@ -172,12 +165,14 @@ go run . -local                           # 本地真终端跑 TUI
 
 ### 常见问题（FAQ）
 
-- **终端全黑白、切主题看不出变化**：多为客户端 `TERM` 与服务端探测不兼容（服务端进程无 `TERM` 时按 stdout 探测，守护进程/docker 下可能退化为无色档）。此时看 STATUS 框的 **`主题：<名字>`** 一行——它是纯文字兜底，无论是否有色都会随 `Ctrl+T` 变化，可用它确认主题切换生效。若需恢复颜色，让客户端以 `TERM=xterm-256color` 或 `COLORTERM=truecolor` 连接（如 `tmux` 会话内 `ssh -tt`），或在板子上用 systemd/tmux 赋予服务端一个真实 TTY 与 `TERM`。
+- **终端全黑白、切主题看不出变化**：多为客户端 `TERM` 与服务端探测不兼容（服务端进程无 `TERM` 时按 stdout 探测，守护进程/docker 下可能退化为无色档）。此时看侧栏 `KEYS` 小节的 **`· 主题：<名字>`** 一行——它是纯文字兜底，无论是否有色都会随 `Ctrl+T` 变化，可用它确认主题切换生效。若需恢复颜色，让客户端以 `TERM=xterm-256color` 或 `COLORTERM=truecolor` 连接（如 `tmux` 会话内 `ssh -tt`），或在板子上用 systemd/tmux 赋予服务端一个真实 TTY 与 `TERM`。
 - **白屏 / 一直 `loading...`**：`View()` 在收到 `tea.WindowSizeMsg` 前返回 `"loading..."` 占位，绝不返回空串。排查入口：
   1. 确认带 PTY 连接（`ssh -tt -p 2222 主机`，非 `-T`）。
   2. 确认终端尺寸可上报（tmux/screen 正常；纯管道/无 PTY 会走纯文本列表分支）。
   3. 看服务端进程 stdout 是否有异常（`-local` 无 TTY 会报 `could not open a new TTY`）。
 - **`ssh -T` 与 TUI 行为不同**：`-T` 无 PTY → 纯文本列表；进 TUI 必须带 PTY（`-tt`）。
+- **终端拖拽选中不能复制**：本项目已**不接管鼠标**（`server.go` 未启用 `WithMouseCellMotion`，不发送 `?1000`/`?1006` 上报），因此终端的拖拽选中复制应原生可用。若仍不能复制，通常是终端自身选中模式/`mouse` 选项问题（如 tmux 需要 `set -g mouse off` 或按住 `Shift` 拖拽），与本服务端无关。
+- **滚动失效**：阅读态滚动**只保留方向键**（`↑↓`/`j`/`k`），`PgUp`/`PgDn`/`Space`/`Home`/`End`/`g`/`G` 与鼠标滚轮**故意不响应**（交互纠偏：滚轮会破坏拖拽复制，Pg 类键位已裁剪）。若文章很短（正文一屏内放得下），方向键自然无滚动空间，属预期行为。
 
 ---
 
@@ -189,16 +184,16 @@ go run . -local                           # 本地真终端跑 TUI
 ska-blog-go/
 ├── main.go              # flag: -addr/-articles/-guest(默认true)/-list/-render/-local; 模式分流(默认server, -local调试)
 ├── internal/content/    # articles.md 解析层(含测试): # 跳过/## 一篇/首个空格Tab切ID/### 归正文
-├── internal/render/     # ANSI 渲染层(含测试)
+├── internal/render/     # ANSI 渲染层(含测试) —— 列表摘要/阅读兜底/-render/纯文本列表用
 ├── internal/server/     # gliderlabs ssh: hostkey/PTY分流/EOF退出/纯文本列表(含测试)
-├── internal/theme/      # 3 套主题 palette 结构体 + 切换注册表(默认/aura/冷青)
-├── internal/tui/        # 核心重写区(模仿参考布局):
-│   ├── app.go           #   根 model: 视图(列表/阅读)状态机, 尺寸, 主题, 用户名注入
-│   ├── layout.go        #   边框主区+右 Sidebar 30% 组合渲染(lipgloss 布局)
-│   ├── list.go          #   卡片列表(scroll跟随, 摘要)
-│   ├── reader.go        #   正文 viewport + 滚动加速
-│   └── sidebar.go       #   STATUS 框(含"主题：<名字>"兜底行) + 提示框
+├── internal/theme/      # 3 套主题 palette(含 glow 衍生色: SelBg/ListTitle/Meta/Divider) + 切换注册表
+├── internal/tui/        # 核心重写区(Charm house style):
+│   ├── app.go           #   根 model: 视图(列表/阅读)状态机, 尺寸, 主题, 用户名注入, 搜索/跳转/Tab
+│   ├── layout.go        #   soft-serve 布局: header+分割线+两栏(竖分割线), 无整周包边
+│   ├── list.go          #   glow 式行列表(无边框盒, ▍光标, 选中背景色块)
+│   ├── reader.go        #   正文 viewport(glamour 渲染+internal/render 兜底, 方向键滚动)
+│   └── sidebar.go       #   无边框 STATUS/KEYS 小节(键位+主题/侧栏状态行)
 └── articles/articles.md # 文章示例数据
 ```
 
-依赖白名单：`bubbletea`/`bubbles`/`lipgloss`/`gliderlabs-ssh` 及传递依赖；不用 `testify`；注释中文。
+依赖白名单：`bubbletea`/`bubbles`/`lipgloss`/`glamour`/`gliderlabs-ssh` 及传递依赖；不用 `testify`；注释中文。

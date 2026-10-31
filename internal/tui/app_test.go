@@ -139,12 +139,12 @@ func TestThemeAffectsView(t *testing.T) {
 		t.Error("切主题后全界面渲染应当变化")
 	}
 	// 名字进 STATUS：阅读态标题文字里能看到当前主题无关，这里仅确保内容一致
-	if !strings.Contains(a, "SKA-BLOG://GO") {
-		t.Error("根框标题缺失")
+	if !strings.Contains(a, "SKA·BLOG") {
+		t.Error("根框品牌字缺失")
 	}
 }
 
-// TestViewWellFormed 全屏行数与根框完整（上下边框/标题/STATUS/键位面板）。
+// TestViewWellFormed 全屏行数与 soft-serve 布局完整（header/分割线/STATUS/KEYS）。
 func TestViewWellFormed(t *testing.T) {
 	m := sized(t)
 	v := m.View()
@@ -152,21 +152,30 @@ func TestViewWellFormed(t *testing.T) {
 	if len(lines) != twH {
 		t.Errorf("应恰好 %d 行, got %d", twH, len(lines))
 	}
+	// 顶部 header（无边框）：左品牌字，右访客信息右对齐
 	top := stripANSI(lines[0])
-	if !strings.HasPrefix(top, "┌") || !strings.Contains(top, "SKA-BLOG://GO") {
-		t.Errorf("顶边框应含标题, got %q", top)
+	if !strings.HasPrefix(top, "SKA·BLOG") {
+		t.Errorf("header 应以品牌字开头, got %q", top)
 	}
-	// 底部边框已搬空（键位提示进侧栏"提示"面板）：纯 └────┘，无文字
+	if strings.Contains(top, "┌") || strings.Contains(top, "│") {
+		t.Errorf("header 不应带边框字符, got %q", top)
+	}
+	if !strings.Contains(top, "访客：tester") || !strings.Contains(top, "文章 6 篇") {
+		t.Errorf("header 应含访客/文章数, got %q", top)
+	}
+	// header 下分割线
+	div := stripANSI(lines[1])
+	if !strings.HasPrefix(div, "─") || !strings.HasSuffix(div, "─") {
+		t.Errorf("第二行应为水平分割线, got %q", div)
+	}
+	// 取消整周包边与 bottomTitle：最后一行应为内容（无 └/┘）
 	last := stripANSI(lines[len(lines)-1])
-	if !strings.HasPrefix(last, "└") || !strings.HasSuffix(last, "┘") {
-		t.Errorf("底边框应为纯边框行, got %q", last)
-	}
-	if strings.Contains(last, "退出") {
-		t.Errorf("底边框不应再含键位提示（已搬侧栏）, got %q", last)
+	if strings.Contains(last, "└") || strings.Contains(last, "┘") || strings.Contains(last, "退出") {
+		t.Errorf("底部不应再含边框或键位提示（已搬侧栏）, got %q", last)
 	}
 	joined := stripANSI(v)
 	if !strings.Contains(joined, "STATUS") || !strings.Contains(joined, "当前位置：首页") {
-		t.Error("STATUS 框首页态内容缺失")
+		t.Error("STATUS 小节首页态内容缺失")
 	}
 	if !strings.Contains(joined, "当前用户：tester") {
 		t.Error("STATUS 应注入用户名")
@@ -174,14 +183,33 @@ func TestViewWellFormed(t *testing.T) {
 	if !strings.Contains(joined, "文章：6 篇") {
 		t.Error("STATUS 应显示文章数")
 	}
-	// 侧栏"提示"键位面板：列表态键 + 主题/侧栏状态行
-	if !strings.Contains(joined, "提示") {
-		t.Error("提示框缺失")
+	// 侧栏 KEYS 键位小节：列表态键 + 主题/侧栏状态行
+	if !strings.Contains(joined, "KEYS") {
+		t.Error("KEYS 小节缺失")
 	}
 	for _, want := range []string{"/ 搜索", ": 跳转", "Tab 侧栏", "Ctrl+T 主题", "Q/Ctrl+C 退出", "主题：默认", "侧栏：开"} {
 		if !strings.Contains(joined, want) {
-			t.Errorf("键位面板缺 %q", want)
+			t.Errorf("键位小节缺 %q", want)
 		}
+	}
+}
+
+// TestRenderHeightReading 阅读态整屏行数也恒等于窗口高（进度行+视口+header+分割线）。
+func TestRenderHeightReading(t *testing.T) {
+	m := sized(t)
+	m2 := m // 副本
+	m2.updateListKey("enter")
+	if m2.view != viewRead {
+		t.Fatal("enter 应进入阅读")
+	}
+	v := m2.View()
+	if n := len(strings.Split(v, "\n")); n != twH {
+		t.Errorf("阅读态应恰好 %d 行, got %d", twH, n)
+	}
+	// 收起侧栏（主列全宽）行数仍恒等
+	m3, _ := m2.Update(tea.KeyMsg{Type: tea.KeyTab})
+	if n := len(strings.Split(m3.(Model).View(), "\n")); n != twH {
+		t.Errorf("侧栏收起阅读态应 %d 行, got %d", twH, n)
 	}
 }
 

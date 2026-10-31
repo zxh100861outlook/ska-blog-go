@@ -79,8 +79,8 @@ func TestBlockLines(t *testing.T) {
 		t.Fatalf("卡片应 %d 行, got %d", cardBlock, len(lines))
 	}
 	top := stripANSI(lines[0])
-	if !strings.HasPrefix(top, "▸ ") {
-		t.Errorf("选中卡应有 ▸ 前缀, got %q", top)
+	if !strings.HasPrefix(top, "▍ ") {
+		t.Errorf("选中卡应有 ▍ 块状光标, got %q", top)
 	}
 	if !strings.Contains(top, "wj2") || !strings.Contains(top, "github clone 加速") {
 		t.Errorf("标题行应含 id 与标题, got %q", top)
@@ -91,10 +91,13 @@ func TestBlockLines(t *testing.T) {
 	if !strings.Contains(lines[1], "…") {
 		t.Errorf("长摘要应截断加省略号, got %q", lines[1])
 	}
-	// 未选中：无 ▸，灰色
+	// 未选中：无 ▍，无背景色块
 	linesOff := blockLines(a, false, 60, theme.Get("aura"))
-	if strings.Contains(stripANSI(linesOff[0]), "▸") {
-		t.Errorf("未选中不应带 ▸, got %q", stripANSI(linesOff[0]))
+	if strings.Contains(stripANSI(linesOff[0]), "▍") {
+		t.Errorf("未选中不应带 ▍ 光标, got %q", stripANSI(linesOff[0]))
+	}
+	if strings.Contains(linesOff[0], "\x1b[48;") {
+		t.Errorf("未选中不应有背景色块, got %q", linesOff[0])
 	}
 }
 

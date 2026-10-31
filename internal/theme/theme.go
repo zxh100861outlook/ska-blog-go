@@ -7,13 +7,20 @@ package theme
 import "github.com/charmbracelet/lipgloss"
 
 // Palette 是一套主题配色的完整集合。
+// 前 6 个字段是基础色；SelBg/ListTitle/Meta/Divider 是 glow 风格衍生色
+// （选中行背景/列表标题/元信息/分割线），切主题时随基础色一并生效。
 type Palette struct {
 	Name       string         // 主题名（注册表键）
-	Primary    lipgloss.Color // 主色：选中态边框/强调文字
+	Primary    lipgloss.Color // 主色：强调文字/选中标题
 	Background lipgloss.Color // 背景色
 	Text       lipgloss.Color // 正文文字
-	TextMuted  lipgloss.Color // 暗淡文字：摘要/键位提示
-	Border     lipgloss.Color // 边框
+	TextMuted  lipgloss.Color // 暗淡文字：未选中列表标题/次要说明
+	Border     lipgloss.Color // 边框（保留，部分旧边框语义已由 Divider 取代）
+
+	SelBg     lipgloss.Color // glow：选中行整行背景（Primary 低饱和衍生）
+	ListTitle lipgloss.Color // glow：未选中列表标题色（= TextMuted 语义别名）
+	Meta      lipgloss.Color // glow：元信息行色（比 TextMuted 更暗一档）
+	Divider   lipgloss.Color // glow：header 下分割线/两栏竖分割线色
 }
 
 var registry = []Palette{
@@ -24,6 +31,11 @@ var registry = []Palette{
 		Text:       "#dedede",
 		TextMuted:  "#8a8a96",
 		Border:     "#5b5b70",
+		// 衍生色：SelBg=背景+12%主色；Meta=TextMuted 向背景压 35%；Divider=Border 向背景压 30%
+		SelBg:     "#28223d",
+		ListTitle: "#8a8a96",
+		Meta:      "#63636e",
+		Divider:   "#484859",
 	},
 	{
 		Name:       "aura",
@@ -32,6 +44,10 @@ var registry = []Palette{
 		Text:       "#d9e6d9",
 		TextMuted:  "#77a077",
 		Border:     "#3c6b44",
+		SelBg:      "#182d1b",
+		ListTitle:  "#77a077",
+		Meta:       "#537153",
+		Divider:    "#2e5334",
 	},
 	{
 		Name:       "冷青",
@@ -40,6 +56,10 @@ var registry = []Palette{
 		Text:       "#d5e6ee",
 		TextMuted:  "#6d92a6",
 		Border:     "#2a5a70",
+		SelBg:      "#0e2e3a",
+		ListTitle:  "#6d92a6",
+		Meta:       "#4b6778",
+		Divider:    "#214659",
 	},
 }
 
