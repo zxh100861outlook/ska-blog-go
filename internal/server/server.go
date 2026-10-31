@@ -7,7 +7,9 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"os"
 	"strings"
+	"sync"
 
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/gliderlabs/ssh"
@@ -16,6 +18,9 @@ import (
 	"skablog/internal/content"
 	"skablog/internal/tui"
 )
+
+// envMu 串行化"会话终端环境覆写 + Program 创建"，见 makeHandler 内注释。
+var envMu sync.Mutex
 
 // gosshSigner 把 crypto.Signer 转成 x/crypto/ssh 的 Signer，
 // 供 Server.AddHostKey 使用（gliderlabs/ssh.Signer 即其别名）。
@@ -88,7 +93,23 @@ func makeHandler(articles []content.Article) ssh.Handler {
 		//   转发 goroutine 从 sess 读字节写 pipe；io.Copy 保证 EOF 前
 		//   已读到的字节先完整写入 pipe（按键不丢），Copy 返回后
 		//   （EOF 或对端断开）再向 program 发送 QuitMsg 促其退出。
+		// 会话级终端环境：lipgloss/termenv 的 ColorProfile() 在进程内
+		// 首次被调用时按 TERM/COLORTERM 探测并缓存（sync.Once）。服务端
+		// 进程常无 TERM（nohup/systemd/无 TTY 启动），首帧渲染会退化为
+		// Ascii 无色档位，所有 Foreground 样式变成空操作，Ctrl+T 切主题
+		// 便无任何视觉变化。因此必须在创建 Program 前按本会话携带的
+		// 环境覆写全局 TERM/COLORTERM。
+		//
+		// 并发会话互相覆写全局 env 是博客场景的可接受取舍：会话短促、
+		// 目标一致（都是让各自界面有颜色）。用包级 mutex 把"设 env +
+		// NewProgram + 触发首次尺寸"圈进同一临界区，把互相影响的窗口
+		// 缩到最小。Send 在 Program 未启动前会阻塞（见 bubbletea 文档），
+		// 故仍放 goroutine 发起——它不占锁，主 goroutine 随即 Run 无死锁。
 		pipeReader, pipeWriter := io.Pipe()
+		envMu.Lock()
+		// TERM 由客户端在 pty-req 里携带（OpenSSH 不把 TERM 放 env 通道），
+		// Environ() 里通常只有 LANG/LC_* 等；两者都传给 applySessionEnv。
+		applySessionEnv(sess.Environ(), pty.Term)
 		prog := tea.NewProgram(tui.New(articles, sess.User()),
 			tea.WithInput(pipeReader),
 			tea.WithOutput(sess),
@@ -107,6 +128,7 @@ func makeHandler(articles []content.Article) ssh.Handler {
 		// Send 在 Program 未启动前会阻塞到启动完成（见 bubbletea 文档），
 		// 所以放在 goroutine 里发，主 goroutine 随即进入 Run，无死锁。
 		go prog.Send(tea.WindowSizeMsg{Width: pty.Window.Width, Height: pty.Window.Height})
+		envMu.Unlock()
 
 		// 持续转发客户端窗口变化；winch 在会话结束时由库关闭，
 		// range 循环自然退出。该 channel 缓冲为 1，若无人消费会
@@ -122,6 +144,43 @@ func makeHandler(articles []content.Article) ssh.Handler {
 			fmt.Fprintf(sess, "会话异常退出: %v\r\n", err)
 			_ = sess.Exit(1)
 		}
+	}
+}
+
+// applySessionEnv 把本会话的终端类型/环境写入进程环境，供
+// lipgloss/termenv 在首次渲染探测颜色档位时读取。
+//
+//   - TERM：优先取 pty 请求携带的终端类型（sess.Pty().Term，OpenSSH
+//     只在 pty-req 里发 TERM，不走 env 通道），其次取会话环境里的
+//     TERM；两者皆无时兜底 xterm-256color，保证至少 ANSI256 档
+//     （服务端进程环境常缺 TERM）。
+//   - COLORTERM：会话环境携带才设置；否则清除，避免把宿主进程残留
+//     的 COLORTERM 误带入本会话。
+func applySessionEnv(environ []string, ptyTerm string) {
+	term := ptyTerm
+	colorTerm := ""
+	for _, kv := range environ {
+		k, v, ok := strings.Cut(kv, "=")
+		if !ok {
+			continue
+		}
+		switch k {
+		case "TERM":
+			if term == "" {
+				term = v // ptyTerm 缺失时退回 env 通道的 TERM
+			}
+		case "COLORTERM":
+			colorTerm = v
+		}
+	}
+	if term == "" {
+		term = "xterm-256color"
+	}
+	_ = os.Setenv("TERM", term)
+	if colorTerm != "" {
+		_ = os.Setenv("COLORTERM", colorTerm)
+	} else {
+		_ = os.Unsetenv("COLORTERM")
 	}
 }
 

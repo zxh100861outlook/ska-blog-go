@@ -3,6 +3,7 @@
 //
 //	列表态：当前位置：首页 / 当前用户：<user> / 文章：N 篇
 //	阅读态：当前文章：<标题> / 篇幅：N段 · M字
+//	两态都含：主题：<当前主题名>（纯文字行，无色终端下 Ctrl+T 也能感知切换）
 package tui
 
 import (
@@ -67,6 +68,10 @@ func statusBox(arts []content.Article, user string, reading *content.Article,
 			line("篇幅：", fmt.Sprintf("%d段 · %d字", reading.ParagraphCount(), reading.WordCount), false),
 		)
 	}
+
+	// 主题名行：纯文字（非仅配色），保证 Ascii 无色终端下 Ctrl+T
+	// 切换主题也能看到可感知的变化（配色退化为无色时仍有一行文字变）。
+	lines = append(lines, line("主题：", p.Name, false))
 
 	head := lipgloss.NewStyle().Foreground(p.TextMuted).Bold(true).
 		Render(" STATUS ")
