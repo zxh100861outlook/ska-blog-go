@@ -14,52 +14,61 @@ ssh -p 2222 <主机>
 
 - 端口默认 `2222`（可用 `-addr` 改，见维护者一节）。
 - **任意用户名均可**：`ssh zhangsan@主机 -p 2222`、`ssh -l guest 主机 -p 2222` 都能进。
-- 连接后进入三栏 TUI：左主列（文章列表/正文）＋右侧 30% Sidebar（STATUS 框＋提示框），根边框左上角标题 `SKA-BLOG://GO`、底部键位提示条。
-- 退出：`Q` 或 `Ctrl+C`。
+- 连接后进入三栏 TUI：左主列（文章列表/正文）＋右侧 30% Sidebar（STATUS 框＋"提示"键位面板），根边框左上角标题 `SKA-BLOG://GO`、底部为纯边框（无键位文字——键位提示已全部搬进侧栏"提示"面板，见 `internal/tui/layout.go` `bannerBottom`）。
+- 退出：`q` 或 `Ctrl+C`。
 
 ### 键位表（列表视图）
 
 | 键 | 功能 | 来源（case 分支） |
 |---|---|---|
-| `↑` / `k` | 选中上移一张卡片 | `internal/tui/app.go` `case "up", "k"` |
-| `↓` / `j` | 选中下移一张卡片 | `internal/tui/app.go` `case "down", "j"` |
-| `Enter` | 进入当前文章阅读态 | `internal/tui/app.go` `case "enter"` |
-| `q` | 退出 | `internal/tui/app.go` `case "q"` |
-| `Ctrl+T` | 循环主题（默认→aura→冷青→默认） | `internal/tui/app.go` `case "ctrl+t"` |
-| `Ctrl+C` | 退出 | `internal/tui/app.go` `case "ctrl+c"` |
-| 滚轮上/下 | 选中上移/下移 | `internal/tui/app.go` `case tea.MouseWheelUp, tea.MouseWheelDown` |
+| `↑` / `k` | 选中上移一张卡片 | `internal/tui/app.go` `updateListKey` `case "up", "k"` |
+| `↓` / `j` | 选中下移一张卡片 | `internal/tui/app.go` `updateListKey` `case "down", "j"` |
+| `Enter` | 进入当前文章阅读态 | `internal/tui/app.go` `updateListKey` `case "enter"` |
+| `/` | 进入搜索态（输入关键词实时过滤） | `internal/tui/app.go` `updateListKey` `case "/"` |
+| `:` | 进入编号跳转态（输入文章 ID） | `internal/tui/app.go` `updateListKey` `case ":"` |
+| `Tab` | 收起/展开右侧侧栏 | `internal/tui/app.go` `Update` `case "tab"` |
+| `Ctrl+T` | 循环主题（默认→aura→冷青→默认） | `internal/tui/app.go` `Update` `case "ctrl+t"` |
+| `q` | 退出 | `internal/tui/app.go` `updateListKey` `case "q"` |
+| `Ctrl+C` | 退出 | `internal/tui/app.go` `Update` `case "ctrl+c"` |
 
 列表滚动跟随：选中卡片始终整块可见，滑出窗口顶/底时窗口整体平移。
 
-搜索态可用 `↑`/`↓` 在命中项间移动光标。
+### 键位表（搜索态 `/`）
+
+| 键 | 功能 | 来源（case 分支） |
+|---|---|---|
+| 字符 | 输入关键词（实时过滤标题/正文/ID） | `internal/tui/app.go` `updateInput` 普通字符 rune 累积分支 |
+| `Backspace` / `Ctrl+H` | 删除末字符（焦点回首个命中） | `internal/tui/app.go` `updateInput` `case "backspace", "ctrl+h"` |
+| `↑` / `↓` | 在命中项间移动光标 | `internal/tui/app.go` `updateInput` `case "up"` / `case "down"` |
+| `Enter` | 打开光标所在命中项 | `internal/tui/app.go` `updateInput` `case "enter"` |
+| `Esc` | 取消搜索，恢复全量列表 | `internal/tui/app.go` `updateInput` `case "esc"` |
+
+注意：搜索态下 `j`/`k` 是查询字符（搜 `jdk`/`kotlin` 这类词不被截获），光标移动只用方向键。
+
+### 键位表（跳转态 `:`）
+
+| 键 | 功能 | 来源（case 分支） |
+|---|---|---|
+| 字符 | 输入文章 ID（先精确后前缀匹配） | `internal/tui/app.go` `updateInput` 普通字符 rune 累积分支 |
+| `Backspace` / `Ctrl+H` | 删除末字符 | `internal/tui/app.go` `updateInput` `case "backspace", "ctrl+h"` |
+| `Enter` | 命中直达阅读；未命中显示"无此文"并保留输入 | `internal/tui/app.go` `updateInput` `case "enter"` |
+| `Esc` | 取消跳转 | `internal/tui/app.go` `updateInput` `case "esc"` |
+
+跳转态下方向键不移动（列表未过滤，移动无意义）；`j`/`k` 仍是普通字符（`:wj2` 这类含 j/k 的 ID 可正常输入）。
 
 ### 键位表（阅读视图）
 
 | 键 | 功能 | 来源（case 分支） |
 |---|---|---|
-| `PgUp` / `b` | 向上翻一页 | `internal/tui/reader.go` `case "pgup", "b"` |
-| `PgDn` / `空格` | 向下翻一页 | `internal/tui/reader.go` `case "pgdown", " "` |
-| `j` | 向下滚一行 | `internal/tui/reader.go` `case "j"` |
-| `k` | 向上滚一行 | `internal/tui/reader.go` `case "k"` |
-| `Home` / `g` | 跳到正文顶部 | `internal/tui/reader.go` `case "home", "g"` |
-| `End` / `G` | 跳到正文底部 | `internal/tui/reader.go` `case "end", "G"` |
-| `←` / `h` / `Esc` | 返回列表视图 | `internal/tui/app.go` `case "left", "h", "esc"` |
-| `q` | 退出 | `internal/tui/reader.go` `case "q"` |
-| `Ctrl+T` | 循环主题（列表态/阅读态都可用） | `internal/tui/app.go` `case "ctrl+t"` |
-| `Ctrl+C` | 退出 | `internal/tui/app.go` `case "ctrl+c"` |
-| 滚轮上/下 | 按加速行数滚动 | `internal/tui/app.go` `case tea.MouseWheelUp, tea.MouseWheelDown` |
+| `↑` / `k` | 向上滚一行 | `internal/tui/reader.go` `keys` `case "up", "k"` |
+| `↓` / `j` | 向下滚一行 | `internal/tui/reader.go` `keys` `case "down", "j"` |
+| `←` / `h` / `Esc` | 返回列表视图 | `internal/tui/app.go` `Update` `case "left", "h", "esc"` |
+| `Tab` | 收起/展开右侧侧栏 | `internal/tui/app.go` `Update` `case "tab"` |
+| `Ctrl+T` | 循环主题 | `internal/tui/app.go` `Update` `case "ctrl+t"` |
+| `q` | 退出 | `internal/tui/reader.go` `keys` `case "q"` |
+| `Ctrl+C` | 退出 | `internal/tui/app.go` `Update` `case "ctrl+c"` |
 
-阅读态顶部有进度行（`标题 (N%)`），底部提示条列出 `↑↓/PgUp/PgDn 滚动  g/End 行首尾  ←/h/Esc 返回  Ctrl+T 主题  Q/Ctrl+C 退出`。
-
-### 鼠标滚轮连滚加速
-
-`↑↓` 之外的滚轮行为：阅读态下**连续滚轮会加速**。语义（参考 `src/lib/scroll-accel.ts` 的 `fastScroll`，实现见 `internal/tui/reader.go` `accel`）：
-
-- 首次滚轮或间隔 ≥ 300ms：每次滚 1 行（超时重置）。
-- 连续区间内每过一拍（50ms）增量翻倍：`1 → 2 → 4 → 8 → 16`，封顶 16 行/次。
-- 停手超过 300ms 后回到 1 行/次。
-
-列表态滚轮不做加速，只做单卡移动。
+阅读态顶部有进度行（`标题 (N%)`）；`PgUp`/`PgDn`/`Space`/`Home`/`End`/`g`/`G` 一律不响应（滚动只留方向键，见 `internal/tui/reader.go` `keys` 注释）。键位提示在右侧 Sidebar 的"提示"面板（`↑↓/j/k 滚动  ←/h/Esc 返回列表  Tab 侧栏  Ctrl+T 主题  Q/Ctrl+C 退出`），根框底部 `bannerBottom` 为纯边框 `└─…─┘`、无键位文字。
 
 ### 非交互纯文本列表（无 PTY）
 
@@ -130,16 +139,18 @@ go run . -local                           # 本地真终端跑 TUI
 
 ### 部署到板子（arm64）
 
-1. **交叉编译**（本机，amd64 上产出 linux/arm64 静态二进制）：
+> **用 Makefile 自动交叉编译 + 打包**：`make deploy-arm64` 一步产出 `/tmp/sshblog-deploy/sshblog-arm64.tar.gz`（内含 linux/arm64 静态二进制 `sshblog`，命名与下方 Dockerfile 的 `COPY sshblog` 一致），随后仍需自行 `scp` 上传到板子。手工操作步骤如下。
+
+1. **交叉编译**（本机，amd64 上产出 linux/arm64 静态二进制，命名 `sshblog` 与 Dockerfile 一致）：
 
    ```bash
-   GOOS=linux GOARCH=arm64 CGO_ENABLED=0 go build -trimpath -ldflags="-s -w" -o sshblog-arm64 .
+   GOOS=linux GOARCH=arm64 CGO_ENABLED=0 go build -trimpath -ldflags="-s -w" -o sshblog .
    ```
 
 2. **打包 + 上传**（可选 tar 压缩）：
 
    ```bash
-   tar -czf sshblog-arm64.tar.gz sshblog-arm64
+   tar -czf sshblog-arm64.tar.gz sshblog
    scp sshblog-arm64.tar.gz user@板子IP:~/
    ```
 
@@ -180,6 +191,9 @@ go run . -local                           # 本地真终端跑 TUI
   2. 确认终端尺寸可上报（tmux/screen 正常；纯管道/无 PTY 会走纯文本列表分支）。
   3. 看服务端进程 stdout 是否有异常（`-local` 无 TTY 会报 `could not open a new TTY`）。
 - **`ssh -T` 与 TUI 行为不同**：`-T` 无 PTY → 纯文本列表；进 TUI 必须带 PTY（`-tt`）。
+- **鼠标滚轮为什么没反应**：服务端未启用鼠标接管（`internal/server/server.go` 不传 `WithMouseCellMotion`，raw 流不发 `?1000`/`?1006` 上报），终端滚轮不会被 TUI 捕获——这是刻意为之：保住终端自身的拖拽选中即可复制文本。列表/阅读滚动只用 `↑↓`/`j/k`。
+- **搜索态怎么选命中项**：`/` 进入搜索后输入关键词实时过滤，`↑`/`↓` 在命中项间移动光标，`Enter` 打开光标所在项；`j`/`k` 是查询字符（搜 `jdk`/`kotlin` 这类含 j/k 的词不会被截获为移动）。
+- **输入中文查询为什么依赖客户端**：查询词按 rune 级累积（`internal/tui/app.go` `updateInput`），客户端需把中文按 UTF-8 字节送出（SSH/终端默认即 UTF-8），服务端按 rune 解码后逐字过滤标题/正文/ID。
 
 ---
 
@@ -198,7 +212,7 @@ ska-blog-go/
 │   ├── app.go           #   根 model: 视图(列表/阅读)状态机, 尺寸, 主题, 用户名注入
 │   ├── layout.go        #   边框主区+右 Sidebar 30% 组合渲染(lipgloss 布局)
 │   ├── list.go          #   卡片列表(scroll跟随, 摘要)
-│   ├── reader.go        #   正文 viewport + 滚动加速
+│   ├── reader.go        #   正文 viewport + 方向键滚动(仅↑↓/j/k, 无Pg/Home/End/g/G)
 │   └── sidebar.go       #   STATUS 框(含"主题：<名字>"兜底行) + 提示框
 └── articles/articles.md # 文章示例数据
 ```
