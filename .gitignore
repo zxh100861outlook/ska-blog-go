@@ -2,3 +2,7 @@ data/
 bin/
 /skablog
 *.test
+SPEC.md
+PLAN.md
+TASK.md
+HANDOFF.md
