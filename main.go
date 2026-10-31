@@ -16,11 +16,13 @@ import (
 	"syscall"
 	"time"
 
+	tea "github.com/charmbracelet/bubbletea"
 	gossh "github.com/gliderlabs/ssh"
 
 	"skablog/internal/content"
 	"skablog/internal/render"
 	"skablog/internal/server"
+	"skablog/internal/tui"
 )
 
 func main() {
@@ -53,11 +55,20 @@ func main() {
 	}
 }
 
-// runLocal 在本终端运行 TUI —— Q2 在 internal/tui（新写的布局/App）+ Q4 串接后实现。
+// runLocal 在本终端运行 TUI（Q2/Q3：布局+交互）。
 func runLocal(arts []content.Article) {
-	// 参数 arts 先保留占位，Q2 的 tea.NewProgram(tui.New(...)) 会用到
-	_ = arts //nolint // 占位
-	panic("Q2实现")
+	user := os.Getenv("USER")
+	if user == "" {
+		user = "local"
+	}
+	p := tea.NewProgram(tui.New(arts, user),
+		tea.WithAltScreen(),
+		tea.WithMouseCellMotion(), // 滚轮加速需要鼠标事件
+	)
+	if _, err := p.Run(); err != nil {
+		fmt.Fprintln(os.Stderr, "TUI 运行错误:", err)
+		os.Exit(1)
+	}
 }
 
 // runServer 启动 SSH 服务器并阻塞，直到收到 SIGINT/SIGTERM 优雅关闭。

@@ -1,18 +1,20 @@
-// server.go —— gliderlabs/ssh 服务器封装：PTY 会话暂给纯文本占位视图
-//（Q2/Q3 接入 tui 包），无 PTY 请求打印纯文本文章列表。
+// server.go —— gliderlabs/ssh 服务器封装：每个会话一个 tea.Program，
+// 或为无 PTY 请求打印纯文本文章列表。
 package server
 
 import (
 	"crypto"
 	"errors"
 	"fmt"
+	"io"
 	"strings"
 
+	tea "github.com/charmbracelet/bubbletea"
 	"github.com/gliderlabs/ssh"
 	gossh "golang.org/x/crypto/ssh"
 
 	"skablog/internal/content"
-	"skablog/internal/render"
+	"skablog/internal/tui"
 )
 
 // gosshSigner 把 crypto.Signer 转成 x/crypto/ssh 的 Signer，
@@ -72,45 +74,53 @@ func Start(cfg Config) (*ssh.Server, error) {
 // makeHandler 构造会话处理器。
 func makeHandler(articles []content.Article) ssh.Handler {
 	return func(sess ssh.Session) {
-		_, winch, isPTY := sess.Pty()
+		pty, winch, isPTY := sess.Pty()
 		if !isPTY {
 			// ssh -T 无 PTY：输出纯文本列表后退出
 			fmt.Fprint(sess, PlainList(articles))
 			return
 		}
 
-		// TODO(Q3): 换回每个会话一个 bubbletea Program（tui 包在 Q2/Q3 编写）。
-		// 原实现：io.Pipe 包一层输入 + prog.Run()（EOF 退出的完整资料在 git
-		// 历史的 sshblog 仓库 internal/server/server.go，届时原样恢复）。
-		//
-		// Q1 临时实现：直接用 render 包把第一篇文章渲染成带 ANSI 颜色的
-		// 纯文本打印给客户端，然后阻塞读取输入，EOF 或按 q 即退出 ——
-		// 保证 stdin EOF 后会话不会挂死（P4.5 缺陷回归由 eof_test 把关）。
-		if len(articles) > 0 {
-			a := articles[0]
-			fmt.Fprint(sess, render.Render("# "+a.Title+"\n\n"+a.Body)+"\r\n")
-		}
-		fmt.Fprint(sess, "\r\n(占位视图：Q3 恢复 TUI。按 q 或关闭输入退出)\r\n")
-
-		// 必须消费 winch：channel 缓冲为 1，无人消费会卡住 SSH 请求循环。
+		// 有 PTY：每个会话独立跑一个 bubbletea Program。
+		// 输入不能直接绑 sess：当客户端关闭 stdin（脚本/管道用法），
+		// bubbletea 的 readLoop 读到 EOF 只会静默结束，程序不会退出，
+		// SSH 通道随之挂死。因此用 io.Pipe 包一层：
+		//   转发 goroutine 从 sess 读字节写 pipe；io.Copy 保证 EOF 前
+		//   已读到的字节先完整写入 pipe（按键不丢），Copy 返回后
+		//   （EOF 或对端断开）再向 program 发送 QuitMsg 促其退出。
+		pipeReader, pipeWriter := io.Pipe()
+		prog := tea.NewProgram(tui.New(articles, sess.User()),
+			tea.WithInput(pipeReader),
+			tea.WithOutput(sess),
+			tea.WithAltScreen(),
+			tea.WithMouseCellMotion(), // 滚轮加速需要鼠标事件
+		)
 		go func() {
-			for range winch {
+			defer pipeWriter.Close()
+			// io.Copy 语义：读到 EOF 之前的内容全部写完才返回 —— 保证按键不丢
+			_, _ = io.Copy(pipeWriter, sess)
+			// 读侧结束（EOF / 客户端断开），正式退出 TUI；
+			// Program 已终止时 Send 是 no-op，安全。
+			prog.Send(tea.QuitMsg{})
+		}()
+
+		// Send 在 Program 未启动前会阻塞到启动完成（见 bubbletea 文档），
+		// 所以放在 goroutine 里发，主 goroutine 随即进入 Run，无死锁。
+		go prog.Send(tea.WindowSizeMsg{Width: pty.Window.Width, Height: pty.Window.Height})
+
+		// 持续转发客户端窗口变化；winch 在会话结束时由库关闭，
+		// range 循环自然退出。该 channel 缓冲为 1，若无人消费会
+		// 卡住 SSH 请求循环，因此必须消费。
+		go func() {
+			for win := range winch {
+				prog.Send(tea.WindowSizeMsg{Width: win.Width, Height: win.Height})
 			}
 		}()
 
-		// 占位等待退出：读到 EOF（客户端关闭 stdin / 断开）或按键 q 即结束。
-		buf := make([]byte, 256)
-		for {
-			n, err := sess.Read(buf)
-			if err != nil {
-				// EOF 或连接断开：正常结束，会话随之退出
-				return
-			}
-			for _, b := range buf[:n] {
-				if b == 'q' || b == 'Q' {
-					return
-				}
-			}
+		// 注意：本版 bubbletea 的 Wait() 无返回值，最终错误来自 Run()。
+		if _, err := prog.Run(); err != nil {
+			fmt.Fprintf(sess, "会话异常退出: %v\r\n", err)
+			_ = sess.Exit(1)
 		}
 	}
 }
