@@ -18,6 +18,7 @@ package render
 import (
 	"regexp"
 	"strings"
+	"unicode"
 )
 
 // ANSI 转义序列常量（仅使用标准 SGR 控制序列，不依赖第三方库）。
@@ -53,8 +54,10 @@ var (
 )
 
 // Render 把一段 Markdown 文本渲染为带 ANSI 颜色的字符串。
+// width 是目标显示宽度：超过 width 的文本行会按 CJK 显示宽度折行
+// （含代码块内行，背景色覆盖所有折出行）；width<=0 表示不折行。
 // 返回值不带末尾换行符，由调用方决定如何输出。
-func Render(src string) string {
+func Render(src string, width int) string {
 	lines := splitLines(src)
 	var (
 		out       []string // 输出行
@@ -64,7 +67,7 @@ func Render(src string) string {
 
 	// flushCode 把缓存的代码块渲染成带背景色的行并追加到输出
 	flushCode := func() {
-		out = append(out, renderCodeBlock(code)...)
+		out = append(out, renderCodeBlock(code, width)...)
 		code = code[:0]
 		fenceMark = ""
 	}
@@ -93,7 +96,9 @@ func Render(src string) string {
 
 		// 标题
 		if m := reHeading.FindStringSubmatch(line); m != nil {
-			out = append(out, renderHeading(len(m[1]), strings.TrimSpace(m[2])))
+			for _, piece := range wrapPlain(strings.TrimSpace(m[2]), width) {
+				out = append(out, renderHeading(len(m[1]), piece))
+			}
 			i++
 			continue
 		}
@@ -104,7 +109,7 @@ func Render(src string) string {
 			for j < len(lines) && strings.HasPrefix(strings.TrimSpace(lines[j]), "|") {
 				j++
 			}
-			out = append(out, renderTable(lines[i:j])...)
+			out = append(out, renderTable(lines[i:j], width)...)
 			i = j
 			continue
 		}
@@ -118,27 +123,33 @@ func Render(src string) string {
 
 		// 以 "**" 开头的行是粗体段落而不是列表，先排除再匹配列表
 		if strings.HasPrefix(trimmed, "**") {
-			out = append(out, inline(line))
+			for _, piece := range wrapPlain(line, width) {
+				out = append(out, inline(piece))
+			}
 			i++
 			continue
 		}
 
 		// 列表项
 		if m := reListItem.FindStringSubmatch(line); m != nil {
-			out = append(out, renderListItem(m[1], m[2], m[3]))
+			out = append(out, renderListItem(m[1], m[2], m[3], width)...)
 			i++
 			continue
 		}
 
 		// 引用
 		if m := reQuote.FindStringSubmatch(line); m != nil {
-			out = append(out, colorQuote+"> "+reset+inline(strings.TrimSpace(m[1])))
+			for _, piece := range wrapPlain(strings.TrimSpace(m[1]), width) {
+				out = append(out, colorQuote+"> "+reset+inline(piece))
+			}
 			i++
 			continue
 		}
 
-		// 普通段落行：只做行内格式化，不做重排（保证 CJK 不被错误换行）
-		out = append(out, inline(line))
+		// 普通段落行：行内格式化，并按 width 折行（保证 CJK 不被错误截断）
+		for _, piece := range wrapPlain(line, width) {
+			out = append(out, inline(piece))
+		}
 		i++
 	}
 
@@ -152,6 +163,100 @@ func Render(src string) string {
 		out = out[:len(out)-1]
 	}
 	return strings.Join(out, "\n")
+}
+
+// wrapPlain 把一条纯文本（可能含 ANSI，用于防御）按显示宽度折成若干行，
+// 每行显示宽度 ≤ width（width<=0 时不折行）。
+//
+// 折行规则（对齐参考实现的 word-wrap）：
+//   - 优先在空格/制表符处断行（单词整体尽量保留）；
+//   - 中文/全角字符按"逐字断"（单个 CJK 字符即可作为断点）；
+//   - 断点行尾若是标点（标点"可后置"），把该标点移到下一行行首，
+//     避免一行以标点收尾（中文排版避头尾的基本处理）。
+func wrapPlain(s string, width int) []string {
+	if width <= 0 || DisplayWidth(s) <= width {
+		return []string{s}
+	}
+	rs := []rune(s)
+	var lines []string
+	start := 0
+	col := 0
+	lastSpace := -1 // 当前行 [start, i) 内最后一个空白下标
+	i := 0
+	for i < len(rs) {
+		r := rs[i]
+		if r == 0x1b { // 防御：跳过 ANSI 序列，不计宽
+			j := i + 1
+			for j < len(rs) && rs[j] != 'm' {
+				j++
+			}
+			i = j + 1
+			continue
+		}
+		w := RuneWidth(r)
+		if col+w <= width {
+			col += w
+			if unicode.IsSpace(r) {
+				lastSpace = i
+			}
+			i++
+			continue
+		}
+		// 放不下：确定断点
+		breakAt := i
+		if lastSpace >= start {
+			breakAt = lastSpace
+		}
+		emitEnd := breakAt
+		// 去掉行尾空白
+		for emitEnd > start && unicode.IsSpace(rs[emitEnd-1]) {
+			emitEnd--
+		}
+		// 标点后置：断点前是标点且前面还有非标点 → 标点移到下一行行首
+		if emitEnd > start && isPostponedPunct(rs[emitEnd-1]) {
+			k := emitEnd
+			for k > start && isPostponedPunct(rs[k-1]) {
+				k--
+			}
+			if k > start {
+				emitEnd = k
+			}
+		}
+		if emitEnd > start {
+			lines = append(lines, string(rs[start:emitEnd]))
+		}
+		// 下一行起点：从 emitEnd 起跳过空白（含断点处空格）
+		next := emitEnd
+		for next < len(rs) && unicode.IsSpace(rs[next]) {
+			next++
+		}
+		start = next
+		col = 0
+		lastSpace = -1
+		if start >= len(rs) {
+			break
+		}
+		// 断点可能在触发下标之前（空格断），start 之后的 rune 尚未真正
+		// 落入任何一行，必须从 start 重新装箱，否则会丢字。
+		i = start
+	}
+	if start < len(rs) {
+		lines = append(lines, strings.TrimRight(string(rs[start:]), " \t"))
+	}
+	if len(lines) == 0 {
+		lines = append(lines, "")
+	}
+	return lines
+}
+
+// isPostponedPunct 判断是否"行尾可后置"的标点：这类字符落在断点行尾时
+// 会被移到下一行行首，避免一行以标点收尾。
+func isPostponedPunct(r rune) bool {
+	switch r {
+	case ',', '.', ';', ':', '!', '?', '%', ')', ']', '}', '、', '，', '。', '；', '：', '！', '？', '）', '】', '」', '』', '”', '’':
+		return true
+	}
+	return false
 }
 
 // splitLines 把文本按行切分，统一处理 CRLF 与孤立的 CR。
@@ -179,8 +284,9 @@ func renderHeading(level int, text string) string {
 
 // renderListItem 渲染一个列表项：标记着色，无序列表统一为 "-" 项目符号
 // （避免使用 East Asian Ambiguous 宽度的 "•" 等 Unicode 符号导致中文终端错位）。
-// indent 保留原始缩进以支持简单的嵌套层级。
-func renderListItem(indent, marker, text string) string {
+// indent 保留原始缩进以支持简单的嵌套层级。text 超过可用宽度时折行，
+// 续行按标记宽度对齐缩进。
+func renderListItem(indent, marker, text string, width int) []string {
 	m := marker
 	if marker == "*" || marker == "+" {
 		m = "-"
@@ -189,28 +295,44 @@ func renderListItem(indent, marker, text string) string {
 	if text == "" {
 		sep = ""
 	}
-	return indent + colorList + m + sep + reset + inline(text)
+	prefix := indent + colorList + m + sep
+	prefW := DisplayWidth(prefix)
+	avail := width
+	if avail > 0 {
+		if avail-prefW < 1 {
+			avail = prefW + 1
+		}
+	}
+	pieces := wrapPlain(text, avail)
+	if len(pieces) == 0 {
+		pieces = []string{""}
+	}
+	out := make([]string, 0, len(pieces))
+	out = append(out, prefix+reset+inline(pieces[0]))
+	for _, piece := range pieces[1:] {
+		out = append(out, strings.Repeat(" ", prefW)+inline(piece))
+	}
+	return out
 }
 
 // renderTable 渲染表格：丢弃 |---| 分隔行，每行铺平为 "单元格 | 单元格"，
-// 第一行（表头）加粗。单元格内的行内语法照常处理。
-func renderTable(rows []string) []string {
+// 第一行（表头）加粗。单元格内的行内语法照常处理。超宽行按 width 折行。
+func renderTable(rows []string, width int) []string {
 	out := make([]string, 0, len(rows))
 	header := true
 	for _, row := range rows {
 		if isTableSeparator(row) {
 			continue // |---|---| 对齐行直接丢弃
 		}
-		cells := splitTableRow(row)
-		for i := range cells {
-			cells[i] = inline(cells[i])
+		raw := strings.Join(splitTableRow(row), " | ")
+		for _, piece := range wrapPlain(raw, width) {
+			line := inline(piece)
+			if header {
+				line = bold + line + reset
+			}
+			out = append(out, line)
 		}
-		line := strings.Join(cells, " | ")
-		if header {
-			line = bold + line + reset
-			header = false
-		}
-		out = append(out, line)
+		header = false
 	}
 	return out
 }
@@ -267,21 +389,37 @@ func isHorizontalRule(line string) bool {
 
 // renderCodeBlock 渲染围栏代码块：每行套上统一的背景色，
 // 并按显示宽度（CJK 按 2 列）补齐空格，使整块背景是一个对齐的矩形。
+// 内容行超过 width 时先折行，背景色覆盖所有折出行；width<=0 不折行。
 // 首尾各加一行空白背景行，视觉上与正文隔开。
-func renderCodeBlock(lines []string) []string {
+func renderCodeBlock(lines []string, width int) []string {
+	// 内容宽度预算：前导空格占 1 列
+	contentW := width - 1
+	if contentW <= 0 {
+		contentW = int(^uint(0) >> 1) // width<=0：视为无限宽，不折行
+	}
+	// 先按内容宽度折行（代码行是纯文本，折行后再统一上背景）
+	var wrapped []string
+	for _, l := range lines {
+		wrapped = append(wrapped, wrapPlain(l, contentW)...)
+	}
 	// 内容最大显示宽度；至少为 1，保证空代码块也能渲染出背景条
 	maxw := 1
-	for _, l := range lines {
+	for _, l := range wrapped {
 		if w := DisplayWidth(l); w > maxw {
 			maxw = w
 		}
 	}
-	pad := strings.Repeat(" ", maxw+2)
-	out := make([]string, 0, len(lines)+2)
+	// 块内矩形宽度 = 1（前导空格）+ maxw；width>0 时不超过 width
+	blockW := maxw + 1
+	if width > 0 && blockW > width {
+		blockW = width
+	}
+	pad := strings.Repeat(" ", blockW)
+	out := make([]string, 0, len(wrapped)+2)
 	out = append(out, styleCode+pad+reset)
-	for _, l := range lines {
+	for _, l := range wrapped {
 		// 行内容是原始文本（无 ANSI 码），宽度计算才准确
-		fill := strings.Repeat(" ", maxw-DisplayWidth(l)+1)
+		fill := strings.Repeat(" ", blockW-1-DisplayWidth(l))
 		out = append(out, styleCode+" "+l+fill+reset)
 	}
 	out = append(out, styleCode+pad+reset)

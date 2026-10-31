@@ -63,7 +63,6 @@ func runLocal(arts []content.Article) {
 	}
 	p := tea.NewProgram(tui.New(arts, user),
 		tea.WithAltScreen(),
-		tea.WithMouseCellMotion(), // 滚轮加速需要鼠标事件
 	)
 	if _, err := p.Run(); err != nil {
 		fmt.Fprintln(os.Stderr, "TUI 运行错误:", err)
@@ -131,6 +130,6 @@ func renderArticle(arts []content.Article, id string) {
 		fmt.Fprintf(os.Stderr, "错误: 找不到文章 %q\n", id)
 		os.Exit(1)
 	}
-	// 文章标题按一级标题渲染，正文原样交给渲染器
-	fmt.Println(render.Render("# " + a.Title + "\n\n" + a.Body))
+	// 文章标题按一级标题渲染，正文原样交给渲染器；按 80 列折行（调试模式默认宽）
+	fmt.Println(render.Render("# "+a.Title+"\n\n"+a.Body, 80))
 }

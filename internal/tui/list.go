@@ -152,7 +152,8 @@ func metaRender(meta string) string {
 }
 
 // plain 把一行 Markdown 渲染后去掉颜色码，得到"去标记"纯文本。
-func plain(line string) string { return stripANSI(render.Render(line)) }
+// width=0 表示不折行：摘要后续由 truncateVisible 负责截断。
+func plain(line string) string { return stripANSI(render.Render(line, 0)) }
 
 // minutes 估读时长：ceil(WordCount/400)，至少 1 分钟。
 func minutes(wordCount int) int {

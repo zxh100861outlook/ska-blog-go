@@ -16,22 +16,22 @@ func TestRenderHeadings(t *testing.T) {
 		{"#### 四级标题", colorH4 + "四级标题" + reset},
 	}
 	for _, c := range cases {
-		if got := Render(c.in); got != c.want {
+		if got := Render(c.in, 0); got != c.want {
 			t.Errorf("Render(%q) = %q, 期望 %q", c.in, got, c.want)
 		}
 	}
 }
 
 // TestRenderCodeBlock 验证代码块背景色与按 CJK 宽度补齐空格。
-// "ab" 占 2 列，"中文字" 占 6 列，最大宽度 6，因此每行内容连同前后空格共 8 列。
+// "ab" 占 2 列，"中文字" 占 6 列，最大宽度 6，块内矩形宽 = 1(前导空格)+6 = 7。
 func TestRenderCodeBlock(t *testing.T) {
 	in := "```bash\nab\n中文字\n```"
-	got := Render(in)
+	got := Render(in, 0)
 	want := strings.Join([]string{
-		styleCode + strings.Repeat(" ", 8) + reset, // 顶部留白行
-		styleCode + " ab" + strings.Repeat(" ", 5) + reset,
-		styleCode + " 中文字 " + reset,                // 中文按 2 列计，只补 1 个空格
-		styleCode + strings.Repeat(" ", 8) + reset, // 底部留白行
+		styleCode + strings.Repeat(" ", 7) + reset, // 顶部留白行
+		styleCode + " ab" + strings.Repeat(" ", 4) + reset,
+		styleCode + " 中文字" + reset,                 // 中文按 2 列计，无需补空格
+		styleCode + strings.Repeat(" ", 7) + reset, // 底部留白行
 	}, "\n")
 	if got != want {
 		t.Errorf("Render 代码块 =\n%q\n期望\n%q", got, want)
@@ -40,7 +40,7 @@ func TestRenderCodeBlock(t *testing.T) {
 
 // TestRenderCodeBlockKeepsRawText 验证代码块内部不做行内格式化。
 func TestRenderCodeBlockKeepsRawText(t *testing.T) {
-	got := Render("```\n**x** [a](u)\n```")
+	got := Render("```\n**x** [a](u)\n```", 0)
 	if !strings.Contains(got, "**x** [a](u)") {
 		t.Errorf("代码块内容应保持原样, 得到 %q", got)
 	}
@@ -51,7 +51,7 @@ func TestRenderCodeBlockKeepsRawText(t *testing.T) {
 
 // TestRenderUnclosedFence 验证未闭合围栏也能兜底输出内容。
 func TestRenderUnclosedFence(t *testing.T) {
-	got := Render("```\ncode line")
+	got := Render("```\ncode line", 0)
 	if !strings.Contains(got, "code line") || !strings.Contains(got, styleCode) {
 		t.Errorf("未闭合代码块应带背景输出, 得到 %q", got)
 	}
@@ -60,32 +60,32 @@ func TestRenderUnclosedFence(t *testing.T) {
 // TestRenderBold 验证粗体去星号并加粗。
 func TestRenderBold(t *testing.T) {
 	for _, in := range []string{"这是 **加粗** 文字", "这是 __加粗__ 文字"} {
-		got := Render(in)
+		got := Render(in, 0)
 		want := "这是 " + bold + "加粗" + reset + " 文字"
 		if got != want {
 			t.Errorf("Render(%q) = %q, 期望 %q", in, got, want)
 		}
 	}
 	// 脏格式：未配对的 ** 也应被清除
-	if got := Render("结尾有多余**"); strings.Contains(got, "**") {
+	if got := Render("结尾有多余**", 0); strings.Contains(got, "**") {
 		t.Errorf("未配对的 ** 应被清除, 得到 %q", got)
 	}
 }
 
 // TestRenderItalic 验证单星号斜体去星号（不加样式）。
 func TestRenderItalic(t *testing.T) {
-	if got := Render("a *斜体* b"); got != "a 斜体 b" {
+	if got := Render("a *斜体* b", 0); got != "a 斜体 b" {
 		t.Errorf("Render = %q, 期望 %q", got, "a 斜体 b")
 	}
 	// snake_case 中的下划线不应被当作斜体删除
-	if got := Render("变量 some_var_name 保持原样"); !strings.Contains(got, "some_var_name") {
+	if got := Render("变量 some_var_name 保持原样", 0); !strings.Contains(got, "some_var_name") {
 		t.Errorf("下划线标识符应保持原样, 得到 %q", got)
 	}
 }
 
 // TestRenderLink 验证链接只保留文字。
 func TestRenderLink(t *testing.T) {
-	got := Render("去 [谷歌](https://google.com) 搜索")
+	got := Render("去 [谷歌](https://google.com) 搜索", 0)
 	if got != "去 谷歌 搜索" {
 		t.Errorf("Render = %q, 期望 %q", got, "去 谷歌 搜索")
 	}
@@ -96,7 +96,7 @@ func TestRenderLink(t *testing.T) {
 
 // TestRenderImage 验证图片渲染为 "[图片: 说明]"。
 func TestRenderImage(t *testing.T) {
-	got := Render("看这个 ![截图](./images/a.png)")
+	got := Render("看这个 ![截图](./images/a.png)", 0)
 	if got != "看这个 [图片: 截图]" {
 		t.Errorf("Render = %q, 期望 %q", got, "看这个 [图片: 截图]")
 	}
@@ -104,7 +104,7 @@ func TestRenderImage(t *testing.T) {
 
 // TestRenderBadge 验证 [![alt](图片)](链接) 徽章写法正确退化。
 func TestRenderBadge(t *testing.T) {
-	got := Render("[![alt 文本](https://img.shields.io/x.svg)](https://example.com)")
+	got := Render("[![alt 文本](https://img.shields.io/x.svg)](https://example.com)", 0)
 	if got != "[图片: alt 文本]" {
 		t.Errorf("Render = %q, 期望 %q", got, "[图片: alt 文本]")
 	}
@@ -112,7 +112,7 @@ func TestRenderBadge(t *testing.T) {
 
 // TestRenderInlineCode 验证行内代码着色。
 func TestRenderInlineCode(t *testing.T) {
-	got := Render("运行 `git config` 即可")
+	got := Render("运行 `git config` 即可", 0)
 	want := "运行 " + colorCode + "git config" + reset + " 即可"
 	if got != want {
 		t.Errorf("Render = %q, 期望 %q", got, want)
@@ -121,7 +121,7 @@ func TestRenderInlineCode(t *testing.T) {
 
 // TestRenderLists 验证无序/有序列表渲染，含 "1.我的" 无空格脏格式。
 func TestRenderLists(t *testing.T) {
-	got := Render("* 甲\n- 乙\n+ 丙")
+	got := Render("* 甲\n- 乙\n+ 丙", 0)
 	want := strings.Join([]string{
 		colorList + "- " + reset + "甲",
 		colorList + "- " + reset + "乙",
@@ -131,7 +131,7 @@ func TestRenderLists(t *testing.T) {
 		t.Errorf("无序列表 = %q, 期望 %q", got, want)
 	}
 
-	got = Render("1. 有编号\n2)第二项")
+	got = Render("1. 有编号\n2)第二项", 0)
 	want = strings.Join([]string{
 		colorList + "1. " + reset + "有编号",
 		colorList + "2) " + reset + "第二项",
@@ -141,7 +141,7 @@ func TestRenderLists(t *testing.T) {
 	}
 
 	// 列表项内的行内语法仍然生效
-	got = Render("- **粗体** 项")
+	got = Render("- **粗体** 项", 0)
 	if got != colorList+"- "+reset+bold+"粗体"+reset+" 项" {
 		t.Errorf("列表项内粗体 = %q", got)
 	}
@@ -150,7 +150,7 @@ func TestRenderLists(t *testing.T) {
 // TestRenderTable 验证表格铺平：表头加粗、分隔行丢弃。
 func TestRenderTable(t *testing.T) {
 	in := "| 平台 | 地址 |\n|------|------|\n| A | https://a.com |"
-	got := Render(in)
+	got := Render(in, 0)
 	want := bold + "平台 | 地址" + reset + "\nA | https://a.com"
 	if got != want {
 		t.Errorf("表格 = %q, 期望 %q", got, want)
@@ -159,10 +159,10 @@ func TestRenderTable(t *testing.T) {
 
 // TestRenderQuoteAndHR 验证引用前缀与水平线。
 func TestRenderQuoteAndHR(t *testing.T) {
-	if got := Render("> 引用内容"); got != colorQuote+"> "+reset+"引用内容" {
+	if got := Render("> 引用内容", 0); got != colorQuote+"> "+reset+"引用内容" {
 		t.Errorf("引用 = %q", got)
 	}
-	if got := Render("---"); got != dim+strings.Repeat("-", 32)+reset {
+	if got := Render("---", 0); got != dim+strings.Repeat("-", 32)+reset {
 		t.Errorf("水平线 = %q", got)
 	}
 }
@@ -170,7 +170,7 @@ func TestRenderQuoteAndHR(t *testing.T) {
 // TestRenderParagraphPassthrough 验证普通段落原样保留（不做重排，CJK 安全）。
 func TestRenderParagraphPassthrough(t *testing.T) {
 	in := "在平日里在github上看到好玩的项目想clone下来却发现clone速度慢到离谱！"
-	if got := Render(in); got != in {
+	if got := Render(in, 0); got != in {
 		t.Errorf("普通段落被改动: %q", got)
 	}
 }
@@ -185,7 +185,7 @@ func TestRenderMixedDoc(t *testing.T) {
 		"- 乙\n" +
 		"\n" +
 		"> 引用\n"
-	got := Render(in)
+	got := Render(in, 0)
 	for _, banned := range []string{"**", "](", "![", "#"} {
 		if strings.Contains(got, banned) {
 			t.Errorf("输出不应残留记号 %q: %q", banned, got)
@@ -195,6 +195,94 @@ func TestRenderMixedDoc(t *testing.T) {
 		if !strings.Contains(got, want) {
 			t.Errorf("输出缺少 %q: %q", want, got)
 		}
+	}
+}
+
+// TestWrapASCII 超长 ASCII 行按 width 折行，行宽不超 width。
+func TestWrapASCII(t *testing.T) {
+	in := strings.Repeat("a", 40)
+	got := Render(in, 10)
+	lines := strings.Split(got, "\n")
+	if len(lines) != 4 {
+		t.Fatalf("40 个 a / 10 列应折成 4 行, got %d 行: %q", len(lines), got)
+	}
+	for i, l := range lines {
+		if DisplayWidth(l) > 10 {
+			t.Errorf("第 %d 行宽 %d > 10: %q", i, DisplayWidth(l), l)
+		}
+	}
+	if lines[0] != "aaaaaaaaaa" {
+		t.Errorf("首行应为 10 个 a, got %q", lines[0])
+	}
+}
+
+// TestWrapChinese 超长中文行按 width 逐字断行（CJK 按 2 列）。
+func TestWrapChinese(t *testing.T) {
+	in := "这是一个很长的中文句子"
+	got := Render(in, 8)
+	lines := strings.Split(got, "\n")
+	// 11 个汉字，每行 4 字（8 列），3 行：4+4+3
+	if len(lines) != 3 {
+		t.Fatalf("应折成 3 行, got %d: %q", len(lines), got)
+	}
+	for i, l := range lines {
+		if DisplayWidth(l) > 8 {
+			t.Errorf("第 %d 行宽 %d > 8: %q", i, DisplayWidth(l), l)
+		}
+	}
+	if lines[0] != "这是一个" {
+		t.Errorf("首行应为 4 字, got %q", lines[0])
+	}
+}
+
+// TestWrapWordBoundary 长行在空格处断行（单词整体保留）。
+func TestWrapWordBoundary(t *testing.T) {
+	in := "aa bb cc dd ee"
+	got := Render(in, 7)
+	lines := strings.Split(got, "\n")
+	for i, l := range lines {
+		if DisplayWidth(l) > 7 {
+			t.Errorf("第 %d 行宽 %d > 7: %q", i, DisplayWidth(l), l)
+		}
+	}
+	if lines[0] != "aa bb" { // 7 列：aa(2)+space+bb(2)=5，加 cc 超限 → 断在空格
+		t.Errorf("首行应为 'aa bb', got %q", lines[0])
+	}
+}
+
+// TestWrapPunctPostponed 标点落在断点行尾时被"后置"到下一行行首。
+func TestWrapPunctPostponed(t *testing.T) {
+	in := "你好，世界" // 你(2)好(2)，(2)世(2)界(2) = 10 列
+	got := Render(in, 4)
+	lines := strings.Split(got, "\n")
+	if lines[0] != "你好" { // 4 列正好 2 字；逗号后置到下一行
+		t.Errorf("行尾不应挂标点, got %q", lines[0])
+	}
+	if !strings.HasPrefix(lines[1], "，") {
+		t.Errorf("标点应后置到下一行行首, got %q", lines[1])
+	}
+}
+
+// TestWrapCodeBlock 超长代码行按 width 折行且背景覆盖所有折出行。
+func TestWrapCodeBlock(t *testing.T) {
+	in := "```\n" + strings.Repeat("x", 20) + "\n```"
+	got := Render(in, 10)
+	lines := strings.Split(got, "\n")
+	// 内容 20 个 x，内容宽预算 9（10-1），折成 9+9+2 三行 + 上下留白 = 5 行
+	if len(lines) != 5 {
+		t.Fatalf("应 5 行(含上下留白), got %d: %q", len(lines), got)
+	}
+	for i, l := range lines {
+		if !strings.HasPrefix(l, styleCode) {
+			t.Errorf("第 %d 行缺背景: %q", i, l)
+		}
+		if w := DisplayWidth(l); w > 10 {
+			t.Errorf("第 %d 行宽 %d > 10: %q", i, w, l)
+		}
+	}
+	// 首内容行应含 9 个 x
+	if !strings.Contains(lines[1], strings.Repeat("x", 9)) {
+		t.Errorf("折行后首内容行应含 9 个 x, got %q", lines[1])
 	}
 }
 

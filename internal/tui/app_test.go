@@ -9,6 +9,7 @@ import (
 	"github.com/charmbracelet/lipgloss"
 	"github.com/muesli/termenv"
 
+	"skablog/internal/content"
 	"skablog/internal/theme"
 )
 
@@ -143,16 +144,7 @@ func TestThemeAffectsView(t *testing.T) {
 	}
 }
 
-// TestMouseMoveList 滚轮在列表态移动聚焦。
-func TestMouseMoveList(t *testing.T) {
-	m := sized(t)
-	m2, _ := m.Update(tea.MouseMsg{Type: tea.MouseWheelDown})
-	if m2.(Model).list.focused != 1 {
-		t.Errorf("滚轮下移应聚焦 1, got %d", m2.(Model).list.focused)
-	}
-}
-
-// TestViewWellFormed 全屏行数与根框完整（上下边框/标题/提示/STATUS）。
+// TestViewWellFormed 全屏行数与根框完整（上下边框/标题/STATUS/键位面板）。
 func TestViewWellFormed(t *testing.T) {
 	m := sized(t)
 	v := m.View()
@@ -164,9 +156,13 @@ func TestViewWellFormed(t *testing.T) {
 	if !strings.HasPrefix(top, "┌") || !strings.Contains(top, "SKA-BLOG://GO") {
 		t.Errorf("顶边框应含标题, got %q", top)
 	}
+	// 底部边框已搬空（键位提示进侧栏"提示"面板）：纯 └────┘，无文字
 	last := stripANSI(lines[len(lines)-1])
-	if !strings.HasPrefix(last, "└") || !strings.Contains(last, "退出") {
-		t.Errorf("底边框应含键位提示, got %q", last)
+	if !strings.HasPrefix(last, "└") || !strings.HasSuffix(last, "┘") {
+		t.Errorf("底边框应为纯边框行, got %q", last)
+	}
+	if strings.Contains(last, "退出") {
+		t.Errorf("底边框不应再含键位提示（已搬侧栏）, got %q", last)
 	}
 	joined := stripANSI(v)
 	if !strings.Contains(joined, "STATUS") || !strings.Contains(joined, "当前位置：首页") {
@@ -178,7 +174,197 @@ func TestViewWellFormed(t *testing.T) {
 	if !strings.Contains(joined, "文章：6 篇") {
 		t.Error("STATUS 应显示文章数")
 	}
-	if !strings.Contains(joined, "提示") || !strings.Contains(joined, "滚轮连滚会加速") {
+	// 侧栏"提示"键位面板：列表态键 + 主题/侧栏状态行
+	if !strings.Contains(joined, "提示") {
 		t.Error("提示框缺失")
 	}
+	for _, want := range []string{"/ 搜索", ": 跳转", "Tab 侧栏", "Ctrl+T 主题", "Q/Ctrl+C 退出", "主题：默认", "侧栏：开"} {
+		if !strings.Contains(joined, want) {
+			t.Errorf("键位面板缺 %q", want)
+		}
+	}
+}
+
+// TestTabTogglesSidebar Tab 收起/展开侧栏：主列宽随之变化。
+func TestTabTogglesSidebar(t *testing.T) {
+	m := sized(t)
+	openW := m.mainW()
+	m2, _ := m.Update(tea.KeyMsg{Type: tea.KeyTab})
+	m = m2.(Model)
+	if m.sidebarOpen {
+		t.Fatal("tab 应收起侧栏")
+	}
+	if m.mainW() <= openW {
+		t.Errorf("收起后主列应变宽: mainW=%d, 展开=%d", m.mainW(), openW)
+	}
+	m2, _ = m.Update(tea.KeyMsg{Type: tea.KeyTab})
+	m = m2.(Model)
+	if !m.sidebarOpen {
+		t.Fatal("再次 tab 应展开侧栏")
+	}
+	if m.mainW() != openW {
+		t.Errorf("展开后主列应复原: mainW=%d, 期望 %d", m.mainW(), openW)
+	}
+	// 收起时渲染不含 STATUS（侧栏宽度 0）
+	m2, _ = m.Update(tea.KeyMsg{Type: tea.KeyTab})
+	m = m2.(Model)
+	if strings.Contains(stripANSI(m.View()), "STATUS") {
+		t.Error("收起后不应渲染侧栏 STATUS")
+	}
+}
+
+// TestSearchFilter / 进入搜索态：键入实时过滤，Esc 恢复全量。
+func TestSearchFilter(t *testing.T) {
+	arts := []content.Article{
+		{ID: "a", Title: "github clone", Body: "x", WordCount: 1},
+		{ID: "b", Title: "其他", Body: "y", WordCount: 1},
+	}
+	m := New(arts, "tester")
+	n, _ := m.Update(tea.WindowSizeMsg{Width: twW, Height: twH})
+	m = n.(Model)
+
+	// / 进入搜索
+	m2, _ := m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'/'}})
+	m = m2.(Model)
+	if m.mode != inputSearch {
+		t.Fatalf("/ 应进入搜索态, mode=%v", m.mode)
+	}
+	// 空查询命中全部
+	if len(m.visible) != 2 {
+		t.Fatalf("空查询应命中全部, got %d", len(m.visible))
+	}
+	// 键入 "github"：实时过滤，只命中 a
+	for _, r := range []rune("github") {
+		m2, _ = m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{r}})
+		m = m2.(Model)
+	}
+	if len(m.visible) != 1 || m.visible[0].ID != "a" {
+		t.Fatalf("'github' 应只命中 a, got %d: %v", len(m.visible), ids(m.visible))
+	}
+	if m.list.focused != 0 {
+		t.Errorf("过滤后焦点应在首个命中, focused=%d", m.list.focused)
+	}
+	// 搜索态输入行应显示
+	if !strings.Contains(stripANSI(m.View()), "/ github") {
+		t.Error("搜索态应显示输入行 '/ github'")
+	}
+	// Esc 恢复全量
+	m2, _ = m.Update(tea.KeyMsg{Type: tea.KeyEsc})
+	m = m2.(Model)
+	if m.mode != inputNone || len(m.visible) != 2 {
+		t.Errorf("esc 应退出搜索恢复全量, mode=%v visible=%d", m.mode, len(m.visible))
+	}
+}
+
+// TestJumpByID : 输入文章ID，Enter 精确命中直达阅读。
+func TestJumpByID(t *testing.T) {
+	arts := []content.Article{
+		{ID: "wj2", Title: "github clone 加速", Body: "x", WordCount: 1},
+		{ID: "wj1", Title: "hello", Body: "y", WordCount: 1},
+	}
+	m := New(arts, "tester")
+	n, _ := m.Update(tea.WindowSizeMsg{Width: twW, Height: twH})
+	m = n.(Model)
+	m2, _ := m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{':'}})
+	m = m2.(Model)
+	if m.mode != inputJump {
+		t.Fatalf(": 应进入跳转态, mode=%v", m.mode)
+	}
+	for _, r := range []rune("wj2") {
+		m2, _ = m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{r}})
+		m = m2.(Model)
+	}
+	m2, _ = m.Update(tea.KeyMsg{Type: tea.KeyEnter})
+	m = m2.(Model)
+	if m.view != viewRead || m.reader.article == nil || m.reader.article.ID != "wj2" {
+		t.Errorf("wj2 应直达阅读, view=%v id=%v", m.view, artID(m.reader.article))
+	}
+}
+
+// TestJumpMiss : 未命中 ID 显示"无此文"且保留输入、不清空。
+func TestJumpMiss(t *testing.T) {
+	arts := []content.Article{{ID: "wj2", Title: "t", Body: "b", WordCount: 1}}
+	m := New(arts, "tester")
+	n, _ := m.Update(tea.WindowSizeMsg{Width: twW, Height: twH})
+	m = n.(Model)
+	m2, _ := m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{':'}})
+	m = m2.(Model)
+	for _, r := range []rune("zzz") {
+		m2, _ = m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{r}})
+		m = m2.(Model)
+	}
+	m2, _ = m.Update(tea.KeyMsg{Type: tea.KeyEnter})
+	m = m2.(Model)
+	if !m.jumpErr {
+		t.Fatal("未命中应置 jumpErr")
+	}
+	if m.mode != inputJump || string(m.query) != "zzz" {
+		t.Errorf("未命中应保留输入, mode=%v query=%q", m.mode, string(m.query))
+	}
+	if !strings.Contains(stripANSI(m.View()), "无此文") {
+		t.Error("输入行后应显示'无此文'")
+	}
+}
+
+// TestReadKeysNoPg 阅读态方向键滚动，PgUp/PgDn/Space/Home/g/G 均无反应。
+func TestReadKeysNoPg(t *testing.T) {
+	m := sized(t)
+	m.updateListKey("enter") // 进阅读
+	before := m.reader.vp.YOffset
+	// 下滚 1 行
+	m2, _ := m.Update(tea.KeyMsg{Type: tea.KeyDown})
+	m = m2.(Model)
+	if m.reader.vp.YOffset != before {
+		t.Errorf("↓ 应滚动, before=%d after=%d", before, m.reader.vp.YOffset)
+	}
+	before = m.reader.vp.YOffset
+	// PgUp/PgDn/Space/Home/End/g/G 应无反应
+	for _, k := range []tea.KeyMsg{
+		{Type: tea.KeyPgUp}, {Type: tea.KeyPgDown},
+		{Type: tea.KeyRunes, Runes: []rune{' '}},
+		{Type: tea.KeyHome}, {Type: tea.KeyEnd},
+		{Type: tea.KeyRunes, Runes: []rune{'g'}}, {Type: tea.KeyRunes, Runes: []rune{'G'}},
+	} {
+		m2, _ = m.Update(k)
+		m = m2.(Model)
+		if m.reader.vp.YOffset != before {
+			t.Errorf("键 %v 不应滚动, before=%d after=%d", k, before, m.reader.vp.YOffset)
+		}
+	}
+}
+
+// TestInputBackspace 搜索输入退格删除最后一个 rune（中文按 rune 计）。
+func TestInputBackspace(t *testing.T) {
+	m := sized(t)
+	m2, _ := m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'/'}})
+	m = m2.(Model)
+	for _, r := range []rune("中文") {
+		m2, _ = m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{r}})
+		m = m2.(Model)
+	}
+	if string(m.query) != "中文" {
+		t.Fatalf("输入应累积 rune, got %q", string(m.query))
+	}
+	m2, _ = m.Update(tea.KeyMsg{Type: tea.KeyBackspace})
+	m = m2.(Model)
+	if string(m.query) != "中" {
+		t.Errorf("退格应删一个 rune, got %q", string(m.query))
+	}
+}
+
+// ids 取可见文章 ID 列表（测试辅助）。
+func ids(arts []content.Article) []string {
+	out := make([]string, len(arts))
+	for i := range arts {
+		out[i] = arts[i].ID
+	}
+	return out
+}
+
+// artID 取文章 ID（nil 安全）。
+func artID(a *content.Article) string {
+	if a == nil {
+		return ""
+	}
+	return a.ID
 }

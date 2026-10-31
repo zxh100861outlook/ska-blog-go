@@ -116,7 +116,8 @@ func makeHandler(articles []content.Article) ssh.Handler {
 			tea.WithInput(pipeReader),
 			tea.WithOutput(sess),
 			tea.WithAltScreen(),
-			tea.WithMouseCellMotion(), // 滚轮加速需要鼠标事件
+			// 不启用 WithMouseCellMotion：那会让终端接管鼠标（选中复制失效）。
+			// 访客需要拖拽选中即可复制，因此不发送 ?1000/?1006 鼠标上报。
 		)
 		go func() {
 			defer pipeWriter.Close()
