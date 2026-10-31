@@ -104,59 +104,51 @@ func (l listModel) view(arts []content.Article, rows int, p theme.Palette) strin
 	return strings.Join(lines[:rows], "\n")
 }
 
-// blockLines 渲染一篇文章的两行列表内容（glow 式，无边框盒）+ 尾部空行。
-//
-//	第 1 行（标题行）：{光标}{空格}{小字灰 id} · {标题}
-//	  选中：▍ 块状光标 + 整行淡背景色块 + 标题主色加粗
-//	  未选：空格占位 + 前景 TextMuted
-//	第 2 行（元信息行）：{两格缩进}{id}·{N}段·约{M}分钟 · {摘要}（更暗一档）
-//	第 3 行：空行分隔
-func blockLines(a content.Article, focused bool, w int, p theme.Palette) []string {
+// blockLines 渲染一个卡片的 3 行（含尾部空行）。
+func blockLines(a content.Article, focused bool, w int, p theme.Palette) (out []string) {
 	var (
-		bg      lipgloss.Color
-		titleFg = p.TextMuted // 未选中标题：前景 TextMuted
-		cursor  = " "         // 未选中：空格占位（与选中对齐）
-		idFg    = p.Meta      // 小字灰 id
+		titleS     = lipgloss.NewStyle().Width(w)
+		summaryS   = lipgloss.NewStyle().Width(w)
+		idS        = lipgloss.NewStyle().Foreground(p.Primary)
+		titleTextS = lipgloss.NewStyle()
 	)
 	if focused {
-		bg = p.SelBg
-		titleFg = p.Primary
-		cursor = "▍"
-		idFg = p.TextMuted
+		// 选中：主色边框 + ▸ 前缀 + 标题加粗
+		titleS = titleS.BorderForeground(p.Primary).BorderLeft(true).Bold(true)
+		summaryS = summaryS.BorderForeground(p.Primary).BorderLeft(true)
+	} else {
+		// 未选中：灰色边框
+		titleS = titleS.BorderForeground(p.TextMuted).BorderLeft(true)
+		summaryS = summaryS.BorderForeground(p.TextMuted).BorderLeft(true)
 	}
 
-	// 标题行：先按可用宽度截断标题（纯文本截断后再着色）
-	idW := render.DisplayWidth(a.ID)
-	prefixW := 1 /*cursor*/ + 1 /*空格*/ + idW + 3 /*" · "*/
-	avail := w - prefixW
-	if avail < 1 {
-		avail = 1
-	}
-	title := lipgloss.NewStyle().
-		Foreground(titleFg).Bold(focused).
-		Render(truncateVisible(a.Title, avail))
-	line1Text := cursor + " " +
-		lipgloss.NewStyle().Foreground(idFg).Render(a.ID) +
-		" · " + title
-
-	// 元信息行：id·N段·约M分钟 · 摘要，更暗一档，同缩进两格
-	meta := fmt.Sprintf("%s·%d段·约%d分钟 · %s",
-		a.ID, a.ParagraphCount(), minutes(a.WordCount), plain(firstLine(a.Body)))
-	metaText := truncateVisible(meta, w-2)
-
-	line1 := lipgloss.NewStyle().Width(w).Render(line1Text)
-	line2 := lipgloss.NewStyle().Width(w).Render("  " + metaText)
+	prefix := "  "
 	if focused {
-		// 选中：整行淡背景色块（含右侧补齐空格）
-		line1 = lipgloss.NewStyle().Background(bg).Width(w).Render(line1Text)
-		line2 = lipgloss.NewStyle().Background(bg).Width(w).Render("  " + metaText)
+		prefix = "▸ "
 	}
+	id := idS.Render("[" + a.ID + "]")
+	title := titleTextS.Render(a.Title)
+	titleLine := titleS.Render(prefix + id + " " + title)
 
-	return []string{
-		line1,
-		line2,
+	// 摘要：渲染去标记 → 纯文本 → 按可用宽度截断加 …
+	avail := w - 1 // 侧边条占 1 列
+	meta := fmt.Sprintf(" · %d段·约%d分钟", a.ParagraphCount(), minutes(a.WordCount))
+	summary := plain(firstLine(a.Body))
+	budget := avail - render.DisplayWidth(meta)
+	summary = truncateVisible(summary, budget-1) + metaRender(meta)
+	summaryLine := summaryS.Render(summary)
+
+	out = append(out,
+		strings.TrimRight(titleLine, " "),
+		strings.TrimRight(summaryLine, " "),
 		strings.Repeat(" ", w), // 空行分隔
-	}
+	)
+	return out
+}
+
+// metaRender 摘要尾部统计信息，暗淡色。
+func metaRender(meta string) string {
+	return lipgloss.NewStyle().Faint(true).Render(meta)
 }
 
 // plain 把一行 Markdown 渲染后去掉颜色码，得到"去标记"纯文本。

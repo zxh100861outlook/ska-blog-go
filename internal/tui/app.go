@@ -31,9 +31,9 @@ const (
 type inputMode int
 
 const (
-	inputNone   inputMode = iota // 无输入态
-	inputSearch                  // / 搜索：实时过滤列表
-	inputJump                    // : 编号跳转：精确后前缀匹配文章 ID
+	inputNone inputMode = iota // 无输入态
+	inputSearch                // / 搜索：实时过滤列表
+	inputJump                  // : 编号跳转：精确后前缀匹配文章 ID
 )
 
 // Model 实现 bubbletea.Model。
@@ -82,11 +82,6 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		switch s := msg.String(); s {
 		case "ctrl+t":
 			m.theme = theme.Cycle(m.theme)
-			// 阅读态：glamour 渲染器按主题重建，切主题即时生效
-			if m.view == viewRead && m.reader.article != nil {
-				art := *m.reader.article
-				m.reader.open(art, m.mainW(), readerRows(m.height), theme.Get(m.theme))
-			}
 			return m, nil
 		case "ctrl+c":
 			return m, tea.Quit
@@ -165,7 +160,7 @@ func (m *Model) updateInput(msg tea.KeyMsg) tea.Cmd {
 				m.query = nil
 				m.jumpErr = false
 				m.refreshVisible()
-				m.reader.open(*a, m.mainW(), readerRows(m.height), theme.Get(m.theme))
+				m.reader.open(*a, m.mainW(), readerRows(m.height))
 				m.view = viewRead
 				return nil
 			}
@@ -221,7 +216,7 @@ func (m *Model) openFocused() tea.Cmd {
 	m.query = nil
 	m.jumpErr = false
 	m.refreshVisible()
-	m.reader.open(art, m.mainW(), readerRows(m.height), theme.Get(m.theme))
+	m.reader.open(art, m.mainW(), readerRows(m.height))
 	m.view = viewRead
 	return nil
 }
@@ -286,7 +281,7 @@ func (m *Model) resume() {
 	m.list.resize(m.mainW())
 	if m.view == viewRead && m.reader.article != nil {
 		art := *m.reader.article
-		m.reader.open(art, m.mainW(), readerRows(m.height), theme.Get(m.theme))
+		m.reader.open(art, m.mainW(), readerRows(m.height))
 	}
 }
 
@@ -295,15 +290,19 @@ func (m Model) View() string {
 	if m.width <= 0 || m.height <= 0 {
 		return "loading..."
 	}
-	return renderRoot(m, m.width, m.height)
+	w, rows := m.width, m.height-2
+	if rows < 1 {
+		rows = 1
+	}
+	return renderRoot(m, w, rows)
 }
 
 // 以下是几处布局行数换算的小助手（集中管理，测试同包可见）。
 
-// innerW 主体总宽（无整周包边，即终端宽）。
+// innerW 根框内宽（左右各 1 列边框）。
 func (m Model) innerW() int {
-	if m.width > 0 {
-		return m.width
+	if n := m.width - 2; n > 0 {
+		return n
 	}
 	return 0
 }
@@ -313,22 +312,18 @@ func (m Model) sbW() int {
 	if !m.sidebarOpen {
 		return 0
 	}
-	return sidebarWidth(m.width)
+	return sidebarWidth(m.innerW())
 }
 
-// mainW 主列宽 = 总宽 - 侧栏宽 - 1 条竖分割线（侧栏收起时占满全宽）。
+// mainW 主列宽 = 内宽 - 侧栏宽（至少 1 列）。
 func (m Model) mainW() int {
-	w := m.width
-	if m.sidebarOpen {
-		w = m.width - m.sbW() - 1 // 竖分割线占 1 列
+	if n := m.innerW() - m.sbW(); n > 1 {
+		return n
 	}
-	if w < 1 {
-		w = 1
-	}
-	return w
+	return 1
 }
 
-// listRows 列表态可用行数（header + 分割线各占 1）。
+// listRows 列表态可用行数（根框上下边各占 1）。
 func listRows(height int) int {
 	if n := height - 2; n > 0 {
 		return n
