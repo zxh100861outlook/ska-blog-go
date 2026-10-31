@@ -1,6 +1,6 @@
 # ska-blog-go — SSH 博客
 
-Go + [gliderlabs/ssh](https://github.com/gliderlabs/ssh) + [bubbletea](https://github.com/charmbracelet/bubbletea) 实现的 SSH 博客。默认监听 `127.0.0.1:2222`，访客可用**任意用户名免密**直接进入（guest 模式默认开启）。样式来自 [lipgloss](https://github.com/charmbracelet/lipgloss)，共 3 套内置配色。
+Go + [gliderlabs/ssh](https://github.com/gliderlabs/ssh) + [bubbletea](https://github.com/charmbracelet/bubbletea) 实现的 SSH 博客。默认监听 `127.0.0.1:2222`，访客可用**任意用户名免密**直接进入（guest 模式默认开启）。样式来自 [lipgloss](https://github.com/charmbracelet/lipgloss)，共 4 套内置配色（默认/aura/冷青/gruvbox）。
 
 ---
 
@@ -207,7 +207,7 @@ ska-blog-go/
 ├── internal/content/    # articles.md 解析层(含测试): # 跳过/## 一篇/首个空格Tab切ID/### 归正文
 ├── internal/render/     # ANSI 渲染层(含测试)
 ├── internal/server/     # gliderlabs ssh: hostkey/PTY分流/EOF退出/纯文本列表(含测试)
-├── internal/theme/      # 3 套主题 palette 结构体 + 切换注册表(默认/aura/冷青)
+├── internal/theme/      # 4 套主题 palette 结构体 + 切换注册表(默认/aura/冷青/gruvbox)
 ├── internal/tui/        # 核心重写区(模仿参考布局):
 │   ├── app.go           #   根 model: 视图(列表/阅读)状态机, 尺寸, 主题, 用户名注入
 │   ├── layout.go        #   边框主区+右 Sidebar 30% 组合渲染(lipgloss 布局)
@@ -218,3 +218,7 @@ ska-blog-go/
 ```
 
 依赖白名单：`bubbletea`/`bubbles`/`lipgloss`/`gliderlabs-ssh` 及传递依赖；不用 `testify`；注释中文。
+
+## 参考与致谢
+
+本项目界面与交互参考 [sAkura-IO-com/ska-site-tui](https://github.com/sAkura-IO-com/ska-site-tui)（原 TypeScript/OpenTUI/SolidJS 实现的 SSH 博客服务端），按"只保留基本能力"原则以 Go 重写后端；配色布局键位语义均对齐该参考项目。谨此致谢。
