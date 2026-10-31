@@ -161,6 +161,7 @@ func makeHandler(articles []content.Article) ssh.Handler {
 // 渲染器。因此这里必须显式 SetColorProfile 按会话探测：
 //
 //	COLORTERM=truecolor/24bit   → termenv.TrueColor
+//	TERM 真彩名单命中          → termenv.TrueColor
 //	TERM 含 256color            → termenv.ANSI256
 //	其它非空 TERM               → termenv.ANSI
 //	TERM 空                     → 兜底 ANSI256
@@ -204,21 +205,44 @@ func applySessionEnv(environ []string, ptyTerm string) {
 	}
 
 	// 显式锁定全局渲染器档位（见函数头部注释）。
+	// 优先级（高→低）：显式 COLORTERM=truecolor/24bit → TERM 真彩名单
+	// → TERM 含 256color → 其它非空 TERM → 空兜底 ANSI256。
 	var profile termenv.Profile
 	switch strings.ToLower(colorTerm) {
 	case "truecolor", "24bit":
 		profile = termenv.TrueColor
 	default:
-		if strings.Contains(term, "256color") {
+		switch {
+		case trueColorTerm(strings.ToLower(term)):
+			profile = termenv.TrueColor
+		case strings.Contains(term, "256color"):
 			profile = termenv.ANSI256
-		} else if term != "" {
+		case term != "":
 			profile = termenv.ANSI
-		} else {
+		default:
 			profile = termenv.ANSI256
 		}
 	}
 	lipgloss.SetColorProfile(profile)
 	lipgloss.SetHasDarkBackground(true)
+}
+
+// trueColorTerm 判断 TERM 是否命中已知真彩终端名单。
+//
+// 现代真彩终端（kitty/alacritty/wezterm/foot/contour）的 OpenSSH 客户端
+// 只在 pty-req 里携带 TERM，通常不转发 COLORTERM（sshd AcceptEnv 默认
+// 不放行该变量），若仅按 COLORTERM 判定会被降成 ANSI256 甚至 ANSI16。
+// 因此这里按 TERM 名单（全等或前缀匹配）额外补判 TrueColor。
+//
+// 名单：xterm-kitty / alacritty / wezterm / foot / foot-direct 全等；
+// contour* 按前缀（contour 及其变体）。rxvt-unicode*、vt* 等历史终端
+// 不做真彩认定，保持原判定。
+func trueColorTerm(term string) bool {
+	switch term {
+	case "xterm-kitty", "alacritty", "wezterm", "foot", "foot-direct":
+		return true
+	}
+	return strings.HasPrefix(term, "contour")
 }
 
 // PlainList 渲染纯文本文章列表，格式与 main.go 的 -list 完全一致：

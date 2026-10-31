@@ -1,4 +1,4 @@
-// server_test.go —— 纯文本列表与 Start 构造测试（不真实监听，避免 CI 挂起）。
+// server_test.go —— 纯文本列表、Start 构造与色彩档位探测测试（不真实监听）。
 package server
 
 import (
@@ -6,6 +6,9 @@ import (
 	"os"
 	"strings"
 	"testing"
+
+	"github.com/charmbracelet/lipgloss"
+	"github.com/muesli/termenv"
 
 	"skablog/internal/content"
 )
@@ -52,5 +55,58 @@ func TestStartConstruction(t *testing.T) {
 
 	if _, err := os.Stat("data/host_key"); err != nil {
 		t.Errorf("data/host_key 应已生成: %v", err)
+	}
+}
+
+// TestApplySessionEnvProfile 表驱动验证 (term, colorterm) → 色彩档位映射。
+//
+// 重点：仅凭 TERM 真彩名单（kitty/alacritty/wezterm/foot/contour，无
+// COLORTERM 转发）也应上 TrueColor；256color 后缀、其它非空、空兜底
+// 保持原判定；显式 COLORTERM=truecolor/24bit 优先级最高。
+func TestApplySessionEnvProfile(t *testing.T) {
+	cases := []struct {
+		name      string
+		term      string // ptyTerm（OpenSSH 在 pty-req 携带，通常即客户端 TERM）
+		colorTerm string // 会话环境里的 COLORTERM（sshd 默认不放行，通常缺省）
+		want      termenv.Profile
+	}{
+		{"kitty 仅 TERM 名单上真彩", "xterm-kitty", "", termenv.TrueColor},
+		{"alacritty 仅 TERM 名单上真彩", "alacritty", "", termenv.TrueColor},
+		{"wezterm 仅 TERM 名单上真彩", "wezterm", "", termenv.TrueColor},
+		{"foot 仅 TERM 名单上真彩", "foot", "", termenv.TrueColor},
+		{"foot-direct 仅 TERM 名单上真彩", "foot-direct", "", termenv.TrueColor},
+		{"contour 前缀上真彩", "contour", "", termenv.TrueColor},
+		{"contour 变体前缀上真彩", "contour-iterm2", "", termenv.TrueColor},
+		{"xterm-256color 走 ANSI256", "xterm-256color", "", termenv.ANSI256},
+		{"screen-256color 走 ANSI256", "screen-256color", "", termenv.ANSI256},
+		{"dumb 走 ANSI", "dumb", "", termenv.ANSI},
+		{"vt100 不算真彩走 ANSI", "vt100", "", termenv.ANSI},
+		{"rxvt-unicode 不算真彩走 ANSI", "rxvt-unicode", "", termenv.ANSI},
+		{"空 TERM 兜底 ANSI256", "", "", termenv.ANSI256},
+		{"显式 COLORTERM=truecolor 优先", "xterm-256color", "truecolor", termenv.TrueColor},
+		{"显式 COLORTERM=24bit 优先", "xterm", "24bit", termenv.TrueColor},
+		{"COLORTERM 非真彩不压 TERM 名单", "xterm-kitty", "false", termenv.TrueColor},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			var env []string
+			if tc.colorTerm != "" {
+				env = append(env, "COLORTERM="+tc.colorTerm)
+			}
+			applySessionEnv(env, tc.term)
+			if got := lipgloss.ColorProfile(); got != tc.want {
+				t.Errorf("term=%q colorterm=%q: profile=%v, want %v",
+					tc.term, tc.colorTerm, got, tc.want)
+			}
+		})
+	}
+}
+
+// TestApplySessionEnvFromEnviron ptyTerm 缺失时退回会话环境 TERM，
+// 且该 TERM 命中真彩名单也上 TrueColor（覆盖 env 通道取值路径）。
+func TestApplySessionEnvFromEnviron(t *testing.T) {
+	applySessionEnv([]string{"TERM=xterm-kitty"}, "")
+	if got := lipgloss.ColorProfile(); got != termenv.TrueColor {
+		t.Errorf("environ TERM=xterm-kitty 应上 TrueColor, got %v", got)
 	}
 }
