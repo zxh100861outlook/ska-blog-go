@@ -12,7 +12,9 @@ import (
 	"sync"
 
 	tea "github.com/charmbracelet/bubbletea"
+	"github.com/charmbracelet/lipgloss"
 	"github.com/gliderlabs/ssh"
+	"github.com/muesli/termenv"
 	gossh "golang.org/x/crypto/ssh"
 
 	"skablog/internal/content"
@@ -147,13 +149,27 @@ func makeHandler(articles []content.Article) ssh.Handler {
 	}
 }
 
-// applySessionEnv 把本会话的终端类型/环境写入进程环境，供
-// lipgloss/termenv 在首次渲染探测颜色档位时读取。
+// applySessionEnv 按本会话的终端类型/环境配置 lipgloss 全局渲染器，
+// 必须在 tea.NewProgram 之前、envMu 临界区内调用。
+//
+// 关键点：lipgloss 的 DefaultRenderer 在首次渲染时按"服务端进程
+// 自身 stdout"探测颜色档位并缓存（sync.Once）。守护进程/docker 下
+// stdout 是文件或 /dev/null（非 TTY），termenv.isTTY()==false，
+// 探测结果必然是 Ascii——无论客户端 TERM 是什么。仅 os.Setenv 只
+// 对"后续新建的 termenv.Output"生效，救不了已按 stdout 定档的全局
+// 渲染器。因此这里必须显式 SetColorProfile 按会话探测：
+//
+//	COLORTERM=truecolor/24bit   → termenv.TrueColor
+//	TERM 含 256color            → termenv.ANSI256
+//	其它非空 TERM               → termenv.ANSI
+//	TERM 空                     → 兜底 ANSI256
+//
+// 全局渲染器按"最后建立会话"取档是博客场景的可接受取舍：并发访客
+// 的配色会互相影响，但会话短促、目标一致（都是让界面有颜色）。
 //
 //   - TERM：优先取 pty 请求携带的终端类型（sess.Pty().Term，OpenSSH
 //     只在 pty-req 里发 TERM，不走 env 通道），其次取会话环境里的
-//     TERM；两者皆无时兜底 xterm-256color，保证至少 ANSI256 档
-//     （服务端进程环境常缺 TERM）。
+//     TERM；两者皆无时兜底 xterm-256color。
 //   - COLORTERM：会话环境携带才设置；否则清除，避免把宿主进程残留
 //     的 COLORTERM 误带入本会话。
 func applySessionEnv(environ []string, ptyTerm string) {
@@ -176,12 +192,32 @@ func applySessionEnv(environ []string, ptyTerm string) {
 	if term == "" {
 		term = "xterm-256color"
 	}
+	// 进程环境同步写一份：供后续新建的 termenv.Output（如子组件自建
+	// 渲染器）也能读到正确 TERM/COLORTERM；对全局渲染器已由下面的
+	// SetColorProfile 直接定档，二者不冲突。
 	_ = os.Setenv("TERM", term)
 	if colorTerm != "" {
 		_ = os.Setenv("COLORTERM", colorTerm)
 	} else {
 		_ = os.Unsetenv("COLORTERM")
 	}
+
+	// 显式锁定全局渲染器档位（见函数头部注释）。
+	var profile termenv.Profile
+	switch strings.ToLower(colorTerm) {
+	case "truecolor", "24bit":
+		profile = termenv.TrueColor
+	default:
+		if strings.Contains(term, "256color") {
+			profile = termenv.ANSI256
+		} else if term != "" {
+			profile = termenv.ANSI
+		} else {
+			profile = termenv.ANSI256
+		}
+	}
+	lipgloss.SetColorProfile(profile)
+	lipgloss.SetHasDarkBackground(true)
 }
 
 // PlainList 渲染纯文本文章列表，格式与 main.go 的 -list 完全一致：
