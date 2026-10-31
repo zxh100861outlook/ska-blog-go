@@ -172,6 +172,19 @@ func (m *Model) updateInput(msg tea.KeyMsg) tea.Cmd {
 			m.jumpErr = true // 未命中：显示"无此文"，保留输入
 		}
 		return nil
+	// 方向键移动光标：仅搜索态可移动（列表已过滤，在命中项间移动）；
+	// 跳转态列表未过滤，移动无意义——up/down 非字符，直接吞掉。
+	// 注意：j/k 是查询字符（搜 jdk/kotlin 不能废），不得截获，落入下方 rune 累积分支。
+	case "up":
+		if m.mode == inputSearch {
+			m.list.move(m.visible, -1, listRows(m.height))
+		}
+		return nil
+	case "down":
+		if m.mode == inputSearch {
+			m.list.move(m.visible, 1, listRows(m.height))
+		}
+		return nil
 	case "backspace", "ctrl+h":
 		if len(m.query) > 0 {
 			m.query = m.query[:len(m.query)-1]

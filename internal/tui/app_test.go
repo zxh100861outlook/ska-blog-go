@@ -284,6 +284,126 @@ func TestSearchFilter(t *testing.T) {
 	}
 }
 
+// TestSearchCursorMove 搜索态：方向键在命中项间移动光标（down 递增/夹紧、up 回顶）；
+// j/k 必须可打进查询词（jdk 这类搜索不能废），不得截获为光标移动。
+func TestSearchCursorMove(t *testing.T) {
+	arts := []content.Article{
+		{ID: "a", Title: "jdk 17", Body: "x", WordCount: 1},
+		{ID: "b", Title: "github", Body: "y", WordCount: 1},
+		{ID: "c", Title: "gitee", Body: "z", WordCount: 1},
+		{ID: "d", Title: "other", Body: "w", WordCount: 1},
+	}
+	m := New(arts, "tester")
+	n, _ := m.Update(tea.WindowSizeMsg{Width: twW, Height: twH})
+	m = n.(Model)
+	// / 搜索 "gi" → 命中 b,c 共 2 篇
+	m2, _ := m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'/'}})
+	m = m2.(Model)
+	for _, r := range []rune("gi") {
+		m2, _ = m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{r}})
+		m = m2.(Model)
+	}
+	if len(m.visible) != 2 {
+		t.Fatalf("'gi' 应命中 2 篇, got %d: %v", len(m.visible), ids(m.visible))
+	}
+	if m.list.focused != 0 {
+		t.Fatalf("初始焦点应 0, got %d", m.list.focused)
+	}
+	// 方向键移动：down 递增、夹紧；up 回顶、夹紧
+	m2, _ = m.Update(tea.KeyMsg{Type: tea.KeyDown})
+	m = m2.(Model)
+	if m.list.focused != 1 {
+		t.Fatalf("down 一次应 1, got %d", m.list.focused)
+	}
+	m2, _ = m.Update(tea.KeyMsg{Type: tea.KeyDown})
+	m = m2.(Model)
+	if m.list.focused != 1 {
+		t.Fatalf("down 越界应夹紧 1, got %d", m.list.focused)
+	}
+	m2, _ = m.Update(tea.KeyMsg{Type: tea.KeyUp})
+	m = m2.(Model)
+	if m.list.focused != 0 {
+		t.Fatalf("up 一次应 0, got %d", m.list.focused)
+	}
+	m2, _ = m.Update(tea.KeyMsg{Type: tea.KeyUp})
+	m = m2.(Model)
+	if m.list.focused != 0 {
+		t.Fatalf("up 越界应夹紧 0, got %d", m.list.focused)
+	}
+	// Esc 清空后重来：j/k 必须打进查询词（不是光标移动）
+	m2, _ = m.Update(tea.KeyMsg{Type: tea.KeyEsc})
+	m = m2.(Model)
+	m2, _ = m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'/'}})
+	m = m2.(Model)
+	m2, _ = m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'j'}})
+	m = m2.(Model)
+	if string(m.query) != "j" {
+		t.Fatalf("j 应打进查询词, query=%q", string(m.query))
+	}
+	if m.list.focused != 0 {
+		t.Errorf("键入 j 后焦点应不变(0), got %d", m.list.focused)
+	}
+	m2, _ = m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'d'}})
+	m = m2.(Model)
+	m2, _ = m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'k'}})
+	m = m2.(Model)
+	if string(m.query) != "jdk" {
+		t.Fatalf("k 也应打进查询词, query=%q", string(m.query))
+	}
+	if len(m.visible) != 1 || m.visible[0].ID != "a" {
+		t.Fatalf("'jdk' 应只命中 a, got %d: %v", len(m.visible), ids(m.visible))
+	}
+	// Enter 打开光标所在命中项（openFocused 用 m.list.focused）
+	m2, _ = m.Update(tea.KeyMsg{Type: tea.KeyEnter})
+	m = m2.(Model)
+	if m.view != viewRead || artID(m.reader.article) != "a" {
+		t.Errorf("Enter 应打开光标所在命中 a, view=%v id=%v", m.view, artID(m.reader.article))
+	}
+}
+
+// TestJumpArrowNoMove 跳转态方向键不移动焦点；j/k 仍作为字符累积（保住 :wj2）。
+func TestJumpArrowNoMove(t *testing.T) {
+	arts := []content.Article{
+		{ID: "wj2", Title: "github clone 加速", Body: "x", WordCount: 1},
+		{ID: "wj1", Title: "hello", Body: "y", WordCount: 1},
+	}
+	m := New(arts, "tester")
+	n, _ := m.Update(tea.WindowSizeMsg{Width: twW, Height: twH})
+	m = n.(Model)
+	m2, _ := m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{':'}})
+	m = m2.(Model)
+	if m.mode != inputJump {
+		t.Fatalf(": 应进入跳转态, mode=%v", m.mode)
+	}
+	// 跳转态 down/up 不移动焦点
+	for _, k := range []tea.KeyMsg{{Type: tea.KeyDown}, {Type: tea.KeyUp}} {
+		m2, _ = m.Update(k)
+		m = m2.(Model)
+		if m.list.focused != 0 {
+			t.Errorf("跳转态方向键 %v 不应移动, focused=%d", k, m.list.focused)
+		}
+	}
+	// 跳转态 j/k 作为字符累积（ID 含 j/k，如 wj2/wuji）
+	m2, _ = m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'w'}})
+	m = m2.(Model)
+	m2, _ = m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'j'}})
+	m = m2.(Model)
+	if string(m.query) != "wj" {
+		t.Errorf("跳转态 j 应累积为字符, got %q", string(m.query))
+	}
+	// 补全 wj2 并 Enter 直达
+	m2, _ = m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'2'}})
+	m = m2.(Model)
+	if string(m.query) != "wj2" {
+		t.Fatalf("应累积到 wj2, got %q", string(m.query))
+	}
+	m2, _ = m.Update(tea.KeyMsg{Type: tea.KeyEnter})
+	m = m2.(Model)
+	if m.view != viewRead || artID(m.reader.article) != "wj2" {
+		t.Errorf(":wj2 应直达阅读, view=%v id=%v", m.view, artID(m.reader.article))
+	}
+}
+
 // TestJumpByID : 输入文章ID，Enter 精确命中直达阅读。
 func TestJumpByID(t *testing.T) {
 	arts := []content.Article{
